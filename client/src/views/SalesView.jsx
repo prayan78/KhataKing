@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
-import { apiFetch, recordOfflineSale, getLocalStore } from '../utils/api';
+import { apiFetch, recordOfflineSale, getLocalStore, formatErrorMessage } from '../utils/api';
 import { 
   Plus, 
   Minus, 
@@ -14,7 +14,8 @@ import {
   Banknote,
   AlertCircle,
   Receipt,
-  ArrowRight
+  ArrowRight,
+  Package
 } from 'lucide-react';
 
 export default function SalesView({ products, customers, onSaleCompleted, onViewReceipt, onAddCustomer }) {
@@ -186,7 +187,7 @@ export default function SalesView({ products, customers, onSaleCompleted, onView
       fetchRecentSales();
       onSaleCompleted(finalSale);
     } catch (err) {
-      setErrorMessage(err.message || (lang === 'en' ? 'Failed to record sale' : 'बिक्री सुरक्षित गर्न सकिएन'));
+      setErrorMessage(formatErrorMessage(err, lang) || (lang === 'en' ? 'Failed to record sale' : 'बिक्री सुरक्षित गर्न सकिएन'));
     } finally {
       setIsSubmitting(false);
     }
@@ -457,8 +458,87 @@ export default function SalesView({ products, customers, onSaleCompleted, onView
           </div>
         </div>
 
-        {/* Product Grid / List */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {/* Mobile Compact Kirana Table (sm:hidden) */}
+        <div className="block sm:hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xs">
+          <table className="w-full text-left text-xs divide-y divide-slate-100">
+            <thead className="bg-slate-50 text-[11px] font-black text-slate-500 uppercase tracking-wider">
+              <tr>
+                <th className="py-2 px-2.5">{lang === 'en' ? 'Item' : 'सामान'}</th>
+                <th className="py-2 px-2 text-right">{lang === 'en' ? 'Price' : 'मूल्य'}</th>
+                <th className="py-2 px-2 text-center">{lang === 'en' ? 'Stock' : 'स्टक'}</th>
+                <th className="py-2 px-2 text-center w-12">{lang === 'en' ? 'Add' : 'थप्ने'}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 font-medium">
+              {filteredProducts.map((p) => {
+                const displayName = lang === 'en' && p.nameEn ? p.nameEn : p.name;
+                const inCart = cart.find(item => item.productId === p._id);
+                const isLow = p.stockQty !== undefined && p.stockQty <= (p.minStockAlert || 5);
+
+                return (
+                  <tr
+                    key={p._id}
+                    onClick={() => handleAddToCart(p)}
+                    className={`active:bg-emerald-100/70 transition-colors cursor-pointer select-none ${
+                      inCart ? 'bg-emerald-50/70 font-bold' : 'hover:bg-slate-50'
+                    }`}
+                  >
+                    {/* Item Photo + Name */}
+                    <td className="py-2 px-2.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {p.imageUrl ? (
+                          <div className="w-9 h-9 rounded-lg bg-white border border-slate-200 p-0.5 flex-shrink-0 flex items-center justify-center overflow-hidden">
+                            <img src={p.imageUrl} alt={p.name} className="w-full h-full object-contain" />
+                          </div>
+                        ) : (
+                          <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200 flex-shrink-0 flex items-center justify-center text-slate-400">
+                            <Package className="w-4 h-4" />
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-bold text-slate-900 truncate leading-tight">{displayName}</p>
+                          <span className="text-[10px] text-slate-500">/{p.unit || 'थान'}</span>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Price */}
+                    <td className="py-2 px-2 text-right whitespace-nowrap">
+                      <span className="font-black text-[#023c2e] text-xs">रु. {p.sellingPrice}</span>
+                    </td>
+
+                    {/* Stock */}
+                    <td className="py-2 px-2 text-center whitespace-nowrap">
+                      {p.stockQty !== undefined ? (
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
+                          isLow ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-700'
+                        }`}>
+                          {p.stockQty}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 text-[10px]">-</span>
+                      )}
+                    </td>
+
+                    {/* Add (+) Button */}
+                    <td className="py-1.5 px-2 text-center" onClick={(e) => { e.stopPropagation(); handleAddToCart(p); }}>
+                      <button
+                        type="button"
+                        className="w-7 h-7 mx-auto rounded-lg bg-emerald-800 active:scale-90 hover:bg-emerald-900 text-white flex items-center justify-center font-black shadow-2xs"
+                        aria-label="Add"
+                      >
+                        <Plus className="w-4 h-4 text-[#f5d77f]" />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Desktop / Tablet Grid (hidden sm:grid) */}
+        <div className="hidden sm:grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {filteredProducts.map((p) => {
             const displayName = lang === 'en' && p.nameEn ? p.nameEn : p.name;
             const inCart = cart.find(item => item.productId === p._id);

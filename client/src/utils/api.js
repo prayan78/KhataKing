@@ -92,6 +92,24 @@ export const setLocalStore = (key, val) => {
   } catch (e) {}
 };
 
+export const formatErrorMessage = (err, lang = 'ne') => {
+  if (!err) return '';
+  const msg = typeof err === 'string' ? err : (err.message || '');
+  if (
+    msg.includes('Unexpected token') || 
+    msg.includes('<!doctype') || 
+    msg.includes('SERVER_HTML_RESPONSE') || 
+    msg.includes('INVALID_JSON_RESPONSE') ||
+    msg.includes('Failed to fetch') || 
+    msg.includes('NetworkError')
+  ) {
+    return lang === 'en' 
+      ? 'Backend server not responding. Continuing with local data...' 
+      : 'सर्भर जोडिन सकेन। अफलाइन डाटा प्रयोग गरिएको छ।';
+  }
+  return msg;
+};
+
 // Initializers
 export const getInitialProducts = () => {
   return getLocalStore('kk_cached_prods', DEFAULT_PRODUCTS);

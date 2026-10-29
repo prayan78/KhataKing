@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useLanguage } from '../context/LanguageContext';
-import { apiFetch, getInitialCustomers, getInitialSuppliers, setLocalStore } from '../utils/api';
+import { apiFetch, getInitialCustomers, getInitialSuppliers, setLocalStore, formatErrorMessage } from '../utils/api';
 import { 
   Users, 
   Truck, 
@@ -132,7 +132,7 @@ export default function UdharoView({ customers, suppliers, onRefreshData }) {
       onRefreshData();
       setModalType(null);
     } catch (err) {
-      setFormError(err.message);
+      setFormError(formatErrorMessage(err, lang));
     } finally {
       setIsSubmitting(false);
     }
@@ -200,7 +200,7 @@ export default function UdharoView({ customers, suppliers, onRefreshData }) {
       onRefreshData();
       setModalType(null);
     } catch (err) {
-      setFormError(err.message);
+      setFormError(formatErrorMessage(err, lang));
     } finally {
       setIsSubmitting(false);
     }

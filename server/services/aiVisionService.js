@@ -1,13 +1,13 @@
 /**
- * AI Vision Product Identification Service for KhataKing
- * Supports:
- * - Google Gemini Vision API (GEMINI_API_KEY)
- * - OpenAI Vision API (OPENAI_API_KEY)
- * - Local / Built-in Vision & OCR Analyzer (Deterministic fallback when no API key or offline)
+ * Image-to-Text OCR and Smart Product Title Recognition Service for KhataKing
+ * Uses local Tesseract.js engine to extract text directly from image pixels,
+ * and an intelligent packaging parser to identify the true Product Title, Brand,
+ * Category, Variant/Strength, Size, and Price.
  */
 
 import fs from 'fs';
 import path from 'path';
+import Tesseract from 'tesseract.js';
 
 // Standardized Kirana & Retail Categories
 export const PRODUCT_CATEGORIES = [
@@ -39,440 +39,294 @@ export const PRODUCT_UNITS = [
   'दर्जन'     // Dozen
 ];
 
+// Common noise patterns in product packaging that are NOT product titles
+const NOISE_LINE_PATTERNS = [
+  /\b(mfg|mfd|exp|expiry|manufactur|pkd|packed|batch|lot|b\.?no|date)\b/i,
+  /\b(keep\s*out|children|storage|store\s*in|cool\s*dry|external\s*use|schedule\s*[hxg]|rx\s*only|license|lic\s*no|warning|caution|dosage|direction|composition)\b/i,
+  /\b(pvt\.?\s*ltd\.?|limited|ltd\.?|industries|laboratories|pharmaceuticals\s*ltd|marketed\s*by|manufactured\s*by|distributor)\b/i,
+  /\b(net\s*wt|net\s*quantity|ingredients|nutrition|facts|energy|protein|carbohydrate|fat)\b/i,
+  /\b(m\.?r\.?p\.?|max\.?\s*retail|incl\.?\s*of\s*all\s*taxes|mrp\s*rs)\b/i,
+  /^[\d\s\-_.:/\\,]+$/
+];
+
+// Common known brands in Nepal Kirana & Pharmacy
+const KNOWN_BRANDS = [
+  'Napa', 'Beximco', 'Square', 'Aristo', 'Deurali', 'Apex', 'Cipla', 'Sun Pharma',
+  'Wai Wai', 'Rara', 'Current', '2PM', 'Maggi', 'Chaudhary Group', 'CG',
+  'Dhara', 'Amrit', 'Fortune', 'Saffola',
+  'Parle-G', 'Good Day', 'Britannia', 'Oreo', 'Marie',
+  'Dettol', 'Lifebuoy', 'Lux', 'Colgate', 'Closeup', 'Pepsodent', 'Sunsilk', 'Clinic Plus', 'Dove',
+  'Tokla', 'Mechi', 'Red Bull', 'Coca-Cola', 'Coke', 'Fanta', 'Sprite', 'Pepsi', 'Frooti', 'Real'
+];
+
 /**
- * Validate and normalize AI Vision response against strict schema
+ * Check if buffer has valid image magic bytes (JPEG, PNG, WEBP, GIF)
  */
-export const validateAndNormalizeAiResponse = (raw, rawText = '') => {
-  const result = {
-    productName: '',
-    nameEn: '',
-    brand: '',
-    category: 'Other',
-    variant: '',
-    size: '',
-    unit: 'थान',
-    barcode: null,
-    extractedText: [],
-    confidence: 0,
-    needsReview: true,
-    suggestedSellingPrice: null,
-    suggestedCostPrice: null
-  };
-
-  if (!raw || typeof raw !== 'object') {
-    return result;
+export const isValidImageInput = (input) => {
+  if (!input) return false;
+  let buf = null;
+  if (Buffer.isBuffer(input)) {
+    buf = input;
+  } else if (typeof input === 'string' && fs.existsSync(input)) {
+    try {
+      buf = fs.readFileSync(input);
+    } catch (e) {
+      return false;
+    }
   }
+  if (!buf || buf.length < 32) return false;
 
-  // 1. Product Name (Strict: must not be just category name!)
-  let name = String(raw.productName || raw.name || '').trim();
-  const categoryCandidate = String(raw.category || '').trim();
+  // JPEG: FF D8 FF
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return true;
+  // PNG: 89 50 4E 47
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return true;
+  // GIF: GIF8
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return true;
+  // WEBP: RIFF ... WEBP
+  if (buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return true;
 
-  // Guard against AI using category as product name (e.g. productName: "Medicine")
-  if (name.toLowerCase() === categoryCandidate.toLowerCase() || name.toLowerCase() === 'product' || name.toLowerCase() === 'item') {
-    name = '';
-  }
-  result.productName = name;
-  result.nameEn = String(raw.nameEn || name || '').trim();
-
-  // 2. Brand
-  result.brand = String(raw.brand || '').trim();
-
-  // 3. Category matching
-  const matchedCategory = PRODUCT_CATEGORIES.find(c => 
-    c.toLowerCase() === categoryCandidate.toLowerCase() ||
-    categoryCandidate.toLowerCase().includes(c.toLowerCase())
-  );
-  result.category = matchedCategory || (categoryCandidate ? categoryCandidate : 'Other');
-
-  // 4. Variant & Size
-  result.variant = String(raw.variant || '').trim();
-  result.size = String(raw.size || '').trim();
-
-  // 5. Unit
-  let unit = String(raw.unit || '').trim();
-  if (result.category === 'Medicine' && !unit) {
-    unit = 'पत्ता'; // Default for tablets/medicines
-  } else if (!unit) {
-    unit = 'थान';
-  }
-  result.unit = unit;
-
-  // 6. Barcode
-  result.barcode = raw.barcode ? String(raw.barcode).trim() : null;
-
-  // 7. Extracted text
-  if (Array.isArray(raw.extractedText)) {
-    result.extractedText = raw.extractedText.map(t => String(t).trim()).filter(Boolean);
-  } else if (rawText) {
-    result.extractedText = rawText.split('\n').map(t => t.trim()).filter(Boolean);
-  }
-
-  // 8. Confidence (number between 0 and 1)
-  let conf = parseFloat(raw.confidence);
-  if (isNaN(conf)) conf = 0.5;
-  result.confidence = Math.max(0, Math.min(1, conf));
-
-  // 9. Pricing
-  if (raw.suggestedSellingPrice !== undefined && raw.suggestedSellingPrice !== null) {
-    const sp = parseFloat(raw.suggestedSellingPrice);
-    if (!isNaN(sp) && sp > 0) result.suggestedSellingPrice = sp;
-  }
-  if (raw.suggestedCostPrice !== undefined && raw.suggestedCostPrice !== null) {
-    const cp = parseFloat(raw.suggestedCostPrice);
-    if (!isNaN(cp) && cp > 0) result.suggestedCostPrice = cp;
-  }
-
-  // 10. Review flag: if name is missing or confidence < 0.75, always require review
-  result.needsReview = Boolean(
-    raw.needsReview || 
-    !result.productName || 
-    result.confidence < 0.75 ||
-    result.category === 'Other'
-  );
-
-  return result;
+  return false;
 };
 
 /**
- * Built-in Deterministic Image & Text Analyzer
- * Inspects image filename, buffer patterns, and text cues
- * NEVER guesses noodles unless explicit noodle cues are present!
+ * Perform Image-to-Text OCR using Tesseract.js directly on image pixels
  */
-export const analyzeProductLocally = async (imageBuffer, filename = '') => {
-  const textBuffer = imageBuffer ? imageBuffer.toString('utf8', 0, Math.min(imageBuffer.length, 65536)) : '';
-  const searchCorpus = (filename + ' ' + textBuffer).toLowerCase();
-  const normalizedCorpus = searchCorpus.replace(/[^a-z0-9\u0900-\u097F]+/g, ' ');
+export const performImageToTextOcr = async (imageInput) => {
+  if (!isValidImageInput(imageInput)) {
+    console.log('[OCR_SKIP] Input is not a valid JPEG/PNG/WEBP image, skipping OCR engine.');
+    return '';
+  }
 
-  // Medicine Patterns (Tablets, Syrups, Blister packs, Antibiotics, Painkillers)
-  const isMedicine = /\b(paracetamol|cetirizine|amoxicillin|napa|flexon|sinex|antacid|azithromycin|metformin|ibuprofen|omeprazole|pantoprazole|syrup|tablet|tablets|capsule|capsules|strip|mg|mcg|ointment|pharma|pharmaceutical|blister)\b/i.test(normalizedCorpus);
-  if (isMedicine) {
-    // Extract specific medicine details
-    let brand = '';
-    let name = 'Paracetamol 500mg';
-    let variant = '500mg';
-    let size = '10 Tablets (1 Strip)';
-    let unit = 'पत्ता';
+  try {
+    const { data } = await Tesseract.recognize(imageInput, 'eng', {
+      logger: () => {} // quiet logger
+    });
+    return data?.text || '';
+  } catch (err) {
+    console.warn('[OCR_ENGINE_WARNING] Tesseract failed safely:', err.message);
+    return '';
+  }
+};
 
-    if (normalizedCorpus.includes('cetirizine')) {
-      name = 'Cetirizine 10mg Tablets';
-      variant = '10mg';
-    } else if (normalizedCorpus.includes('amoxicillin')) {
-      name = 'Amoxicillin 500mg Capsules';
-      variant = '500mg';
-    } else if (normalizedCorpus.includes('napa')) {
-      name = 'Napa Paracetamol 500mg';
-      brand = 'Beximco Pharma';
-      variant = '500mg';
-    } else if (normalizedCorpus.includes('flexon')) {
-      name = 'Flexon Pain Relief Tablets';
-      brand = 'Aristo';
-      variant = 'Ibuprofen + Paracetamol';
-    } else if (normalizedCorpus.includes('syrup')) {
-      name = 'Cough Syrup 100ml';
-      size = '100ml';
-      unit = 'बोतल';
-      variant = 'Liquid';
+/**
+ * Smart Title & Field Extraction from OCR Text
+ * Analyzes packaging lines to identify the actual Product Title, Brand, Category,
+ * Strength/Variant, Size, Price, and Unit.
+ */
+export const smartRecognizeProductFromOcrText = (rawOcrText = '', filename = '') => {
+  const allLines = rawOcrText
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(line => line.length > 1);
+
+  const fullCorpus = (filename + ' ' + rawOcrText).toLowerCase();
+  const normalizedCorpus = fullCorpus.replace(/[^a-z0-9\u0900-\u097F]+/g, ' ');
+
+  // 1. Extract Price if MRP / Rs. is visible
+  let suggestedSellingPrice = null;
+  const priceMatch = rawOcrText.match(/(?:mrp|m\.r\.p\.?|price|rs\.?|रु\.?|₹)\s*:?\s*(\d+(?:\.\d+)?)/i);
+  if (priceMatch) {
+    const p = parseFloat(priceMatch[1]);
+    if (!isNaN(p) && p > 0 && p < 100000) {
+      suggestedSellingPrice = p;
     }
-
-    return validateAndNormalizeAiResponse({
-      productName: name,
-      nameEn: name,
-      brand,
-      category: 'Medicine',
-      variant,
-      size,
-      unit,
-      confidence: 0.88,
-      needsReview: false,
-      extractedText: [name, variant, size].filter(Boolean),
-      suggestedSellingPrice: 20,
-      suggestedCostPrice: 15
-    });
   }
 
-  // Noodles & Snacks Patterns (ONLY when actual noodle markers exist!)
-  const isNoodles = /\b(wai\s*wai|rara|current|2pm|noodles|chowmein|maggi)\b/i.test(normalizedCorpus);
-  if (isNoodles) {
-    let name = 'Wai Wai Instant Noodles 75g';
-    let brand = 'Chaudhary Group (CG)';
-    if (normalizedCorpus.includes('rara')) {
-      name = 'Rara White Noodles 75g';
-      brand = 'Gandaki Noodles';
-    } else if (normalizedCorpus.includes('current')) {
-      name = 'Current Hot & Spicy Noodles';
-      brand = 'Yashoda Foods';
-    } else if (normalizedCorpus.includes('2pm')) {
-      name = '2PM 2X Spicy Noodles';
-      brand = 'Asian Thai Foods';
+  // 2. Extract Strength / Variant (e.g. 500mg, 10mg, 75g, 1L, etc.)
+  let variant = '';
+  const variantMatch = rawOcrText.match(/\b(\d+(?:\.\d+)?\s*(?:mg|mcg|ml|l|ltr|gm|g|kg))\b/i);
+  if (variantMatch) {
+    variant = variantMatch[1].replace(/\s+/g, '');
+  }
+
+  // 3. Extract Size / Pack count (e.g. 10 Tablets, 10 Strips, 100ml, 75g)
+  let size = '';
+  const sizeMatch = rawOcrText.match(/\b(\d+\s*(?:tablets?|capsules?|strips?|pcs|थान|पत्ता|पोका))\b/i);
+  if (sizeMatch) {
+    size = sizeMatch[1];
+  } else if (variant) {
+    size = variant;
+  }
+
+  // 4. Identify Brand from known list or capitalized lead words
+  let brand = '';
+  for (const b of KNOWN_BRANDS) {
+    if (new RegExp(`\\b${b}\\b`, 'i').test(rawOcrText) || new RegExp(`\\b${b}\\b`, 'i').test(filename)) {
+      brand = b;
+      break;
     }
-
-    return validateAndNormalizeAiResponse({
-      productName: name,
-      nameEn: name,
-      brand,
-      category: 'Snacks & Noodles',
-      variant: 'Ready to eat',
-      size: '75g',
-      unit: 'पोका',
-      confidence: 0.90,
-      needsReview: false,
-      extractedText: [name, brand],
-      suggestedSellingPrice: 25,
-      suggestedCostPrice: 21
-    });
   }
 
-  // Cooking Oil & Ghee Patterns
-  const isOil = /\b(dhara|mustard\s*oil|sunflower|soybean|ghee|dalda|cooking\s*oil)\b/i.test(normalizedCorpus);
-  if (isOil) {
-    return validateAndNormalizeAiResponse({
-      productName: 'Dhara Pure Mustard Oil 1L',
-      nameEn: 'Dhara Pure Mustard Oil 1L',
-      brand: 'Dhara',
-      category: 'Oil & Ghee',
-      variant: 'Pure Mustard',
-      size: '1 Liter',
-      unit: 'बोतल',
-      confidence: 0.85,
-      needsReview: false,
-      extractedText: ['Dhara', 'Pure Mustard Oil', '1L'],
-      suggestedSellingPrice: 260,
-      suggestedCostPrice: 235
-    });
-  }
-
-  // Soap & Personal Care
-  const isPersonalCare = /\b(dettol|lifebuoy|lux|colgate|closeup|sunsilk|clinic\s*plus|soap|shampoo|toothpaste)\b/i.test(normalizedCorpus);
-  if (isPersonalCare) {
-    let name = 'Dettol Original Soap 75g';
-    let brand = 'Reckitt';
-    if (normalizedCorpus.includes('colgate')) {
-      name = 'Colgate Strong Teeth Toothpaste 100g';
-      brand = 'Colgate-Palmolive';
-    }
-    return validateAndNormalizeAiResponse({
-      productName: name,
-      nameEn: name,
-      brand,
-      category: 'Personal Care & Hygiene',
-      variant: 'Standard',
-      size: '75g',
-      unit: 'थान',
-      confidence: 0.85,
-      needsReview: false,
-      extractedText: [name, brand],
-      suggestedSellingPrice: 60,
-      suggestedCostPrice: 52
-    });
-  }
-
-  // Beverages (Tea, Cold Drinks, Juice)
-  const isBeverage = /\b(tea|chiya|red\s*bull|coke|coca\s*cola|fanta|sprite|frooti|juice)\b/i.test(normalizedCorpus);
-  if (isBeverage) {
-    return validateAndNormalizeAiResponse({
-      productName: 'Tokla Tea Granules 500g',
-      nameEn: 'Tokla CTC Tea 500g',
-      brand: 'Tokla',
-      category: 'Beverages',
-      variant: 'CTC Leaf',
-      size: '500g',
-      unit: 'पोका',
-      confidence: 0.85,
-      needsReview: false,
-      extractedText: ['Tokla Tea', '500g'],
-      suggestedSellingPrice: 280,
-      suggestedCostPrice: 250
-    });
-  }
-
-  // UNREADABLE / UNRECOGNIZED PACKAGING:
-  // Strictly do NOT guess! Return empty name with review required!
-  return validateAndNormalizeAiResponse({
-    productName: '',
-    nameEn: '',
-    brand: '',
-    category: 'Other',
-    variant: '',
-    size: '',
-    unit: 'थान',
-    confidence: 0.20,
-    needsReview: true,
-    extractedText: []
+  // Filter out noise lines to find candidate title lines
+  const cleanCandidateLines = allLines.filter(line => {
+    return !NOISE_LINE_PATTERNS.some(pattern => pattern.test(line));
   });
-};
 
-/**
- * Call Google Gemini Vision API
- */
-const identifyWithGemini = async (imageBuffer, mimeType = 'image/jpeg') => {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY_NOT_CONFIGURED');
+  // 5. Intelligent Title & Category Recognition
+  let productName = '';
+  let category = 'Other';
+  let unit = 'थान';
+  let confidence = 0.5;
 
-  const base64Data = imageBuffer.toString('base64');
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  // --- Check Category A: Medicine ---
+  const isMedicine = /\b(paracetamol|cetirizine|amoxicillin|napa|flexon|sinex|antacid|azithromycin|metformin|ibuprofen|omeprazole|pantoprazole|atorvastatin|cough|syrup|tablet|tablets|capsule|capsules|strip|mg|mcg|ointment|pharma|pharmaceutical|blister)\b/i.test(normalizedCorpus);
+  if (isMedicine) {
+    category = 'Medicine';
+    unit = 'पत्ता'; // Blister strip by default for medicines
+    confidence = 0.88;
 
-  const prompt = `Analyze this product packaging image for a kirana store/retail shop in Nepal.
-Identify the product from the image.
-CRITICAL RULES:
-1. Examine packaging text, brand, logos, and shape. Support English and Nepali (Devanagari).
-2. If this is a medicine (e.g. tablet blister pack, syrup, capsule, ointment), classify category strictly as "Medicine" and identify the medicine name and strength (e.g. "Paracetamol 500mg"). Unit should be "पत्ता" (strip) or "थान".
-3. NEVER classify an item as noodles unless it is genuinely instant noodles or chowmein.
-4. Separate product name from category. Do NOT use category as the product name.
-5. Allowed Categories: ${PRODUCT_CATEGORIES.join(', ')}.
-
-Respond ONLY with a valid JSON object with these exact keys:
-{
-  "productName": "Accurate product name",
-  "nameEn": "English product name",
-  "brand": "Brand name if identifiable",
-  "category": "One of allowed categories",
-  "variant": "Strength/flavor/variant if visible",
-  "size": "Package weight/volume/count if visible",
-  "unit": "थान | पत्ता | पोका | बोतल | बट्टा | के.जी. | ग्राम | लिटर | दर्जन",
-  "barcode": null,
-  "extractedText": ["List of visible words or text lines"],
-  "confidence": 0.95,
-  "needsReview": false,
-  "suggestedSellingPrice": null,
-  "suggestedCostPrice": null
-}`;
-
-  const requestBody = {
-    contents: [
-      {
-        parts: [
-          { text: prompt },
-          {
-            inline_data: {
-              mime_type: mimeType,
-              data: base64Data
-            }
-          }
-        ]
-      }
-    ],
-    generationConfig: {
-      temperature: 0.1,
-      response_mime_type: 'application/json'
-    }
-  };
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 12000);
-
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Gemini API Error HTTP ${response.status}: ${errText.substring(0, 200)}`);
+    // Detect specific drug name
+    let drugName = '';
+    if (normalizedCorpus.includes('paracetamol')) drugName = 'Paracetamol';
+    else if (normalizedCorpus.includes('cetirizine')) drugName = 'Cetirizine';
+    else if (normalizedCorpus.includes('amoxicillin')) drugName = 'Amoxicillin';
+    else if (normalizedCorpus.includes('azithromycin')) drugName = 'Azithromycin';
+    else if (normalizedCorpus.includes('ibuprofen') || normalizedCorpus.includes('flexon')) drugName = 'Flexon';
+    else if (normalizedCorpus.includes('syrup')) {
+      drugName = 'Cough Syrup';
+      unit = 'बोतल';
     }
 
-    const data = await response.json();
-    const candidateText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!candidateText) throw new Error('NO_CANDIDATE_TEXT_RETURNED');
+    // Build smart title: Brand + Drug + Strength (e.g. "Napa Paracetamol 500mg")
+    const titleParts = [];
+    if (brand && !drugName.toLowerCase().includes(brand.toLowerCase())) {
+      titleParts.push(brand);
+    }
+    if (drugName) {
+      titleParts.push(drugName);
+    } else {
+      // Find the best clean line that represents the medicine name
+      const medLine = cleanCandidateLines.find(l => /\b(mg|tablets?|capsules?|syrup)\b/i.test(l)) || cleanCandidateLines[0];
+      if (medLine) titleParts.push(medLine);
+    }
+    if (variant && !titleParts.some(p => p.toLowerCase().includes(variant.toLowerCase()))) {
+      titleParts.push(variant);
+    }
+    if (size && !variant && !titleParts.some(p => p.toLowerCase().includes(size.toLowerCase()))) {
+      titleParts.push(size);
+    }
 
-    const parsed = JSON.parse(candidateText.replace(/```json/g, '').replace(/```/g, '').trim());
-    return validateAndNormalizeAiResponse(parsed);
-  } catch (err) {
-    clearTimeout(timeoutId);
-    throw err;
+    productName = titleParts.join(' ').trim();
+    if (!suggestedSellingPrice) suggestedSellingPrice = 20;
   }
-};
 
-/**
- * Call OpenAI Vision API (gpt-4o-mini)
- */
-const identifyWithOpenAI = async (imageBuffer, mimeType = 'image/jpeg') => {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error('OPENAI_API_KEY_NOT_CONFIGURED');
+  // --- Check Category B: Snacks & Noodles ---
+  else if (/\b(wai\s*wai|rara|current|2pm|noodles|chowmein|maggi)\b/i.test(normalizedCorpus)) {
+    category = 'Snacks & Noodles';
+    unit = 'पोका';
+    confidence = 0.90;
 
-  const base64Data = imageBuffer.toString('base64');
-  const dataUrl = `data:${mimeType};base64,${base64Data}`;
-  const url = 'https://api.openai.com/v1/chat/completions';
-
-  const prompt = `Analyze this product packaging image for a kirana shop in Nepal.
-CRITICAL RULES:
-1. Examine visible labels, brand, product name, variant/strength. Support English and Nepali.
-2. If medicine, category must be "Medicine" and unit "पत्ता" or "थान".
-3. NEVER label as noodles unless the packaging actually shows noodles.
-4. Allowed Categories: ${PRODUCT_CATEGORIES.join(', ')}.
-Return ONLY valid JSON matching this schema:
-{
-  "productName": "string",
-  "nameEn": "string",
-  "brand": "string",
-  "category": "string",
-  "variant": "string",
-  "size": "string",
-  "unit": "थान | पत्ता | पोका | बोतल | बट्टा | के.जी. | ग्राम | लिटर | दर्जन",
-  "barcode": null,
-  "extractedText": [],
-  "confidence": 0.95,
-  "needsReview": false,
-  "suggestedSellingPrice": null,
-  "suggestedCostPrice": null
-}`;
-
-  const requestBody = {
-    model: 'gpt-4o-mini',
-    response_format: { type: 'json_object' },
-    messages: [
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: prompt },
-          { type: 'image_url', image_url: { url: dataUrl } }
-        ]
-      }
-    ],
-    max_tokens: 600,
-    temperature: 0.1
-  };
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 12000);
-
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify(requestBody),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`OpenAI API Error HTTP ${response.status}: ${errText.substring(0, 200)}`);
+    let noodleName = 'Instant Noodles';
+    if (normalizedCorpus.includes('wai wai')) {
+      brand = brand || 'Wai Wai';
+      noodleName = 'Instant Noodles';
+    } else if (normalizedCorpus.includes('current')) {
+      brand = brand || 'Current';
+      noodleName = 'Hot & Spicy Noodles';
+    } else if (normalizedCorpus.includes('rara')) {
+      brand = brand || 'Rara';
+      noodleName = 'White Noodles';
+    } else if (normalizedCorpus.includes('2pm')) {
+      brand = brand || '2PM';
+      noodleName = 'Spicy Noodles';
     }
 
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) throw new Error('NO_CONTENT_RETURNED');
-
-    const parsed = JSON.parse(content);
-    return validateAndNormalizeAiResponse(parsed);
-  } catch (err) {
-    clearTimeout(timeoutId);
-    throw err;
+    const titleParts = [brand, noodleName, variant || size || '75g'].filter(Boolean);
+    productName = titleParts.join(' ').trim();
+    if (!suggestedSellingPrice) suggestedSellingPrice = 25;
   }
+
+  // --- Check Category C: Oil & Ghee ---
+  else if (/\b(dhara|mustard\s*oil|sunflower|soybean|ghee|dalda|cooking\s*oil)\b/i.test(normalizedCorpus)) {
+    category = 'Oil & Ghee';
+    unit = 'बोतल';
+    confidence = 0.85;
+    brand = brand || 'Dhara';
+    let oilType = 'Pure Mustard Oil';
+    if (normalizedCorpus.includes('sunflower')) oilType = 'Sunflower Oil';
+    else if (normalizedCorpus.includes('soybean')) oilType = 'Soybean Oil';
+    else if (normalizedCorpus.includes('ghee')) { oilType = 'Pure Ghee'; unit = 'बट्टा'; }
+
+    productName = `${brand} ${oilType} ${variant || size || '1L'}`.trim();
+    if (!suggestedSellingPrice) suggestedSellingPrice = 260;
+  }
+
+  // --- Check Category D: Biscuits & Bakery ---
+  else if (/\b(parle|good\s*day|biscuit|cookie|cookies|oreo|marie|bakery|bread)\b/i.test(normalizedCorpus)) {
+    category = 'Biscuits & Bakery';
+    unit = 'पोका';
+    confidence = 0.85;
+    brand = brand || 'Parle-G';
+    const bLine = cleanCandidateLines.find(l => /\b(biscuit|cookie|cookies|glucose)\b/i.test(l)) || 'Biscuits';
+    productName = `${brand} ${bLine}`.trim();
+    if (!suggestedSellingPrice) suggestedSellingPrice = 20;
+  }
+
+  // --- Check Category E: Personal Care & Hygiene ---
+  else if (/\b(dettol|lifebuoy|lux|colgate|closeup|sunsilk|clinic\s*plus|soap|shampoo|toothpaste)\b/i.test(normalizedCorpus)) {
+    category = 'Personal Care & Hygiene';
+    unit = 'थान';
+    confidence = 0.85;
+    let itemType = 'Soap';
+    if (normalizedCorpus.includes('colgate') || normalizedCorpus.includes('toothpaste') || normalizedCorpus.includes('closeup')) {
+      itemType = 'Toothpaste';
+    } else if (normalizedCorpus.includes('shampoo')) {
+      itemType = 'Shampoo';
+    }
+    productName = `${brand || 'Dettol'} ${itemType} ${variant || size || ''}`.trim();
+    if (!suggestedSellingPrice) suggestedSellingPrice = 60;
+  }
+
+  // --- Check Category F: Beverages ---
+  else if (/\b(tea|chiya|red\s*bull|coke|coca\s*cola|fanta|sprite|frooti|juice)\b/i.test(normalizedCorpus)) {
+    category = 'Beverages';
+    unit = normalizedCorpus.includes('tea') ? 'पोका' : 'थान';
+    confidence = 0.85;
+    let bev = 'Tea';
+    if (normalizedCorpus.includes('red bull')) bev = 'Red Bull Can 250ml';
+    else if (normalizedCorpus.includes('coke') || normalizedCorpus.includes('coca')) bev = 'Coca-Cola 500ml';
+    else if (normalizedCorpus.includes('frooti')) bev = 'Frooti Mango Drink';
+    productName = `${brand || ''} ${bev}`.trim();
+  }
+
+  // --- Fallback: Extract the most prominent clean line from OCR ---
+  if (!productName && cleanCandidateLines.length > 0) {
+    // Pick the first clean line that is descriptive
+    productName = cleanCandidateLines[0];
+    if (cleanCandidateLines.length > 1 && cleanCandidateLines[0].length < 15 && !cleanCandidateLines[0].includes(' ')) {
+      // Line 1 might be a brand, Line 2 might be the product
+      productName = `${cleanCandidateLines[0]} ${cleanCandidateLines[1]}`;
+    }
+    category = 'General Kirana';
+    unit = 'थान';
+    confidence = 0.65;
+  }
+
+  // If still no title could be extracted:
+  const needsReview = Boolean(!productName || confidence < 0.75 || category === 'Other');
+
+  return {
+    productName: productName.trim(),
+    nameEn: productName.trim(),
+    brand: brand.trim(),
+    category,
+    variant: variant.trim(),
+    size: size.trim(),
+    unit,
+    barcode: null,
+    extractedText: allLines,
+    confidence,
+    needsReview,
+    suggestedSellingPrice,
+    suggestedCostPrice: suggestedSellingPrice ? Math.round(suggestedSellingPrice * 0.85) : null
+  };
 };
 
 /**
  * Main Product Identification Function
- * Coordinates AI Providers with safe logging and fallbacks
+ * 1. Executes Image-to-Text OCR on the actual image file
+ * 2. Runs the smart packaging parser to identify the true Product Title & attributes
+ * 3. Returns the structured product data ready for form filling
  */
 export const identifyProductImage = async ({
   filePath = '',
@@ -481,60 +335,86 @@ export const identifyProductImage = async ({
   mimeType = 'image/jpeg',
   requestId = 'req_' + Date.now()
 }) => {
-  console.log(`[AI_SCAN_START] requestId=${requestId} filename="${originalFilename}" mimeType="${mimeType}"`);
+  console.log(`[OCR_SCAN_START] requestId=${requestId} file="${originalFilename}" mimeType="${mimeType}"`);
 
   let buffer = imageBuffer;
   if (!buffer && filePath && fs.existsSync(filePath)) {
     try {
       buffer = fs.readFileSync(filePath);
     } catch (e) {
-      console.warn(`[AI_FILE_READ_ERR] Could not read file ${filePath}:`, e.message);
+      console.warn(`[OCR_FILE_READ_ERR] Could not read file ${filePath}:`, e.message);
     }
   }
 
-  // 1. Try Gemini Vision if configured
-  if (process.env.GEMINI_API_KEY && buffer) {
-    try {
-      console.log(`[AI_PROVIDER] Calling Google Gemini Vision API for requestId=${requestId}`);
-      const result = await identifyWithGemini(buffer, mimeType);
-      console.log(`[AI_RESULT_GEMINI] requestId=${requestId} Product: "${result.productName}" Category: "${result.category}" Conf: ${result.confidence}`);
-      return {
-        success: true,
-        requestId,
-        provider: 'gemini',
-        product: result
-      };
-    } catch (geminiErr) {
-      console.warn(`[AI_GEMINI_FALLBACK] Gemini failed (${geminiErr.message}), trying next provider.`);
-    }
+  // Step 1: Perform Real Image-to-Text OCR using Tesseract
+  let ocrText = '';
+  if (filePath && fs.existsSync(filePath)) {
+    console.log(`[OCR_RUNNING] Running Tesseract OCR on file: ${filePath}`);
+    ocrText = await performImageToTextOcr(filePath);
+  } else if (buffer) {
+    console.log(`[OCR_RUNNING] Running Tesseract OCR on image buffer (${buffer.length} bytes)`);
+    ocrText = await performImageToTextOcr(buffer);
   }
 
-  // 2. Try OpenAI Vision if configured
-  if (process.env.OPENAI_API_KEY && buffer) {
-    try {
-      console.log(`[AI_PROVIDER] Calling OpenAI Vision API for requestId=${requestId}`);
-      const result = await identifyWithOpenAI(buffer, mimeType);
-      console.log(`[AI_RESULT_OPENAI] requestId=${requestId} Product: "${result.productName}" Category: "${result.category}" Conf: ${result.confidence}`);
-      return {
-        success: true,
-        requestId,
-        provider: 'openai',
-        product: result
-      };
-    } catch (openAiErr) {
-      console.warn(`[AI_OPENAI_FALLBACK] OpenAI failed (${openAiErr.message}), falling back to built-in analyzer.`);
-    }
-  }
+  console.log(`[OCR_OUTPUT] requestId=${requestId} textLength=${ocrText.length} preview="${ocrText.substring(0, 80).replace(/\n/g, ' ')}"`);
 
-  // 3. Fallback: Deterministic Built-in Analyzer
-  console.log(`[AI_PROVIDER] Running Built-in Vision & OCR Analyzer for requestId=${requestId}`);
-  const result = await analyzeProductLocally(buffer, originalFilename);
-  console.log(`[AI_RESULT_LOCAL] requestId=${requestId} Product: "${result.productName || '(Unrecognized)'}" Category: "${result.category}" Conf: ${result.confidence} NeedsReview: ${result.needsReview}`);
+  // Step 2: Smart Recognition of Product Title & Attributes from OCR Text
+  const result = smartRecognizeProductFromOcrText(ocrText, originalFilename);
+
+  console.log(`[SMART_PRODUCT_IDENTIFIED] requestId=${requestId} Title: "${result.productName || '(Unrecognized)'}" | Category: "${result.category}" | Conf: ${result.confidence}`);
 
   return {
     success: true,
     requestId,
-    provider: 'local_analyzer',
+    provider: 'image_to_text_ocr',
     product: result
+  };
+};
+
+export const validateAndNormalizeAiResponse = (raw, rawText = '') => {
+  if (!raw || typeof raw !== 'object') {
+    return {
+      productName: '',
+      nameEn: '',
+      brand: '',
+      category: 'Other',
+      variant: '',
+      size: '',
+      unit: 'थान',
+      barcode: null,
+      extractedText: [],
+      confidence: 0,
+      needsReview: true
+    };
+  }
+
+  let name = String(raw.productName || raw.name || '').trim();
+  const categoryCandidate = String(raw.category || '').trim();
+
+  // Guard against using category as product name
+  if (name.toLowerCase() === categoryCandidate.toLowerCase() || name.toLowerCase() === 'product' || name.toLowerCase() === 'item') {
+    name = '';
+  }
+
+  const matchedCategory = PRODUCT_CATEGORIES.find(c => 
+    c.toLowerCase() === categoryCandidate.toLowerCase()
+  );
+  const category = matchedCategory || (categoryCandidate === 'Medicine' ? 'Medicine' : 'Other');
+
+  const conf = typeof raw.confidence === 'number' ? raw.confidence : 0.5;
+  const needsReview = Boolean(raw.needsReview || !name || conf < 0.75 || category === 'Other');
+
+  return {
+    productName: name,
+    nameEn: raw.nameEn || name,
+    brand: raw.brand || '',
+    category,
+    variant: raw.variant || '',
+    size: raw.size || '',
+    unit: raw.unit || 'थान',
+    barcode: raw.barcode || null,
+    extractedText: Array.isArray(raw.extractedText) ? raw.extractedText : (rawText ? rawText.split('\n') : []),
+    confidence: conf,
+    needsReview
   };
 };

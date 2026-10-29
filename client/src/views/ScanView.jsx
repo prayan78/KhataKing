@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { processProductToWhiteBackground } from '../utils/imageUtils';
-import { getApiBaseUrl, apiFetch, getInitialProducts, setLocalStore } from '../utils/api';
+import { getApiBaseUrl, apiFetch, getInitialProducts, setLocalStore, formatErrorMessage } from '../utils/api';
 import { 
   Camera, 
   Upload, 
@@ -69,6 +69,8 @@ export default function ScanView({ onImportSuccess }) {
   // 1. Paper scan state
   const [batchId, setBatchId] = useState(null);
   const [extractedRows, setExtractedRows] = useState([]);
+  const [paperRawText, setPaperRawText] = useState('');
+  const [showRawText, setShowRawText] = useState(false);
 
   // 2. Single product scan state & Confirmation Form
   const [confirmationForm, setConfirmationForm] = useState(null);
@@ -84,6 +86,8 @@ export default function ScanView({ onImportSuccess }) {
     setConfirmationForm(null);
     setRackProducts([]);
     setExtractedRows([]);
+    setPaperRawText('');
+    setShowRawText(false);
     setSuccessMessage('');
     setErrorMessage('');
   };
@@ -93,64 +97,7 @@ export default function ScanView({ onImportSuccess }) {
    */
   const getFallbackRecords = (mode, filename = '') => {
     if (mode === 'paper') {
-      return [
-        {
-          id: 'rec_' + Math.random().toString(36).substring(7),
-          rawText: 'राम बहादुर थापा - रु. २५०० उधारो (चामल + तेल)',
-          partyName: lang === 'en' ? 'Ram Bahadur Thapa' : 'राम बहादुर थापा',
-          phone: '9841238910',
-          productName: lang === 'en' ? 'Rice + Oil' : 'चामल + तेल',
-          quantity: 1,
-          unitPrice: 2500,
-          amount: 2500,
-          category: 'CUSTOMER_CREDIT',
-          confidence: 'HIGH',
-          status: 'APPROVED',
-          notes: lang === 'en' ? 'Groceries Credit' : 'चामल + तेल उधारो'
-        },
-        {
-          id: 'rec_' + Math.random().toString(36).substring(7),
-          rawText: 'सीता देवी - रु. १००० बुझाएको',
-          partyName: lang === 'en' ? 'Sita Devi Paudel' : 'सीता देवी पौडेल',
-          phone: '9841887766',
-          productName: '',
-          quantity: 1,
-          unitPrice: 1000,
-          amount: 1000,
-          category: 'CUSTOMER_PAYMENT',
-          confidence: 'HIGH',
-          status: 'APPROVED',
-          notes: lang === 'en' ? 'Cash Received' : 'नगद बुझाएको'
-        },
-        {
-          id: 'rec_' + Math.random().toString(36).substring(7),
-          rawText: 'वाइवाइ चाउचाउ ५ कार्टुन - रु. ३६००',
-          partyName: lang === 'en' ? 'Nepal Kirana Wholesale' : 'नेपाल किराना होलसेल',
-          phone: '9801234455',
-          productName: lang === 'en' ? 'Wai Wai Noodles' : 'वाइवाइ चाउचाउ',
-          quantity: 5,
-          unitPrice: 720,
-          amount: 3600,
-          category: 'SUPPLIER_PAYABLE',
-          confidence: 'MEDIUM',
-          status: 'PENDING',
-          notes: lang === 'en' ? '5 Cartons Stock Purchase' : '५ कार्टुन स्टक खरिद'
-        },
-        {
-          id: 'rec_' + Math.random().toString(36).substring(7),
-          rawText: 'हरि दाजु ... ५५० बाकी ?',
-          partyName: lang === 'en' ? 'Hari (Verify Name)' : 'हरि दाजु',
-          phone: '',
-          productName: lang === 'en' ? 'Kirana Goods' : 'किराना सामान',
-          quantity: 1,
-          unitPrice: 550,
-          amount: 550,
-          category: 'CUSTOMER_CREDIT',
-          confidence: 'UNCERTAIN',
-          status: 'PENDING',
-          notes: lang === 'en' ? 'Please verify handwriting' : 'अक्षर यकिन गर्नुहोस्'
-        }
-      ];
+      return [];
     } else if (mode === 'single_product') {
       const lower = (filename || '').toLowerCase();
       let cat = 'Other';
@@ -278,6 +225,7 @@ export default function ScanView({ onImportSuccess }) {
             if (data.success && data.records) {
               records = data.records;
               setBatchId(data.batchId);
+              if (data.rawText) setPaperRawText(data.rawText);
             }
           }
         } catch (netErr) {
@@ -391,7 +339,7 @@ export default function ScanView({ onImportSuccess }) {
       }
     } catch (err) {
       if (scanRequestIdRef.current === currentRequestId) {
-        setErrorMessage(err.message || (lang === 'en' ? 'Scanning failed' : 'स्क्यान गर्न सकिएन'));
+        setErrorMessage(formatErrorMessage(err, lang) || (lang === 'en' ? 'Scanning failed' : 'स्क्यान गर्न सकिएन'));
       }
     } finally {
       if (scanRequestIdRef.current === currentRequestId) {
@@ -425,6 +373,26 @@ export default function ScanView({ onImportSuccess }) {
 
   const handleDeleteRow = (id) => {
     setExtractedRows(prev => prev.filter(r => r.id !== id));
+  };
+
+  const handleAddNewPaperRow = () => {
+    setExtractedRows(prev => [
+      ...prev,
+      {
+        id: 'rec_' + Date.now() + '_' + Math.random().toString(36).substring(5),
+        rawText: '',
+        partyName: '',
+        phone: '',
+        productName: '',
+        quantity: 1,
+        unitPrice: 0,
+        amount: 0,
+        category: 'CUSTOMER_CREDIT',
+        confidence: 'MANUAL',
+        status: 'APPROVED',
+        notes: ''
+      }
+    ]);
   };
 
   const handleApproveAllRows = () => {
@@ -517,7 +485,7 @@ export default function ScanView({ onImportSuccess }) {
       setPreviewImage(null);
       if (onImportSuccess) onImportSuccess();
     } catch (err) {
-      setErrorMessage(err.message || (lang === 'en' ? 'Failed to save product' : 'सामान सुरक्षित हुन सकेन'));
+      setErrorMessage(formatErrorMessage(err, lang) || (lang === 'en' ? 'Failed to save product' : 'सामान सुरक्षित हुन सकेन'));
     } finally {
       setIsProcessing(false);
     }
@@ -711,84 +679,151 @@ export default function ScanView({ onImportSuccess }) {
       )}
 
       {/* ================= SECTION A: PAPER SCAN REVIEW ================= */}
-      {scanMode === 'paper' && extractedRows.length > 0 && (
-        <div className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-xs space-y-2.5">
-          <div className="flex items-center justify-between pb-2 border-b border-slate-100 text-xs">
-            <span className="font-extrabold text-slate-800">
-              {t('readRecordsTitle')} ({extractedRows.length})
-            </span>
-            <button
-              onClick={handleApproveAllRows}
-              className="text-emerald-700 font-bold hover:underline"
-            >
-              {t('approveAll')}
-            </button>
-          </div>
-
-          <div className="space-y-1.5">
-            {extractedRows.map((row) => (
-              <div
-                key={row.id}
-                className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 text-xs transition-all ${
-                  row.status === 'APPROVED'
-                    ? 'border-emerald-400 bg-emerald-50/30'
-                    : 'border-slate-200 bg-slate-50'
-                }`}
-              >
-                <button
-                  onClick={() => handleToggleRow(row.id)}
-                  className={`w-6 h-6 rounded-md border flex items-center justify-center flex-shrink-0 ${
-                    row.status === 'APPROVED' ? 'bg-emerald-700 border-emerald-700 text-white' : 'bg-white border-slate-300'
-                  }`}
-                >
-                  <Check className="w-3.5 h-3.5" />
-                </button>
-
-                <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  <input
-                    type="text"
-                    value={row.partyName}
-                    onChange={(e) => handleUpdateRow(row.id, 'partyName', e.target.value)}
-                    className="p-1.5 rounded-lg border border-slate-300 font-bold bg-white text-xs"
-                    placeholder={lang === 'en' ? 'Name' : 'नाम'}
-                  />
-                  <input
-                    type="text"
-                    value={row.notes || row.productName}
-                    onChange={(e) => handleUpdateRow(row.id, 'notes', e.target.value)}
-                    className="p-1.5 rounded-lg border border-slate-300 bg-white text-xs"
-                    placeholder={lang === 'en' ? 'Notes / Item' : 'कैफियत'}
-                  />
-                  <div className="col-span-2 sm:col-span-1 flex items-center gap-1">
-                    <span className="font-bold text-slate-500">{t('rs')}</span>
-                    <input
-                      type="number"
-                      value={row.amount}
-                      onChange={(e) => handleUpdateRow(row.id, 'amount', e.target.value)}
-                      className="w-full p-1.5 rounded-lg border border-slate-300 font-black bg-white text-xs"
-                      placeholder={lang === 'en' ? 'Amount' : 'रकम'}
-                    />
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => handleDeleteRow(row.id)}
-                  className="p-1.5 text-slate-400 hover:text-red-600"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+      {scanMode === 'paper' && previewImage && (
+        <div className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-xs space-y-2.5 animate-in fade-in">
+          {extractedRows.length === 0 ? (
+            <div className="text-center py-5 px-3 space-y-3">
+              <div className="w-12 h-12 mx-auto rounded-full bg-amber-50 text-amber-700 flex items-center justify-center border border-amber-200">
+                <FileText className="w-6 h-6" />
               </div>
-            ))}
-          </div>
+              <div>
+                <h4 className="font-extrabold text-slate-800 text-sm">
+                  {lang === 'en' ? 'No clear ledger entries detected from image' : 'तस्बिरबाट कुनै स्पष्ट रेकर्ड भेटिएन'}
+                </h4>
+                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                  {lang === 'en' 
+                    ? 'No mock data is shown. You can add lines manually below or retake with a sharper, well-lit photo.' 
+                    : 'कुनै झूटो डाटा देखाइएको छैन। तल "+ नयाँ रेकर्ड थप्नुहोस्" थिचेर आफै खाता वा बिलको विवरण भर्न सक्नुहुन्छ।'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleAddNewPaperRow}
+                className="px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs inline-flex items-center gap-1.5 shadow-xs transition-all active:scale-95"
+              >
+                <Plus className="w-4 h-4 text-[#f5d77f]" />
+                <span>{lang === 'en' ? '+ Add Line Manually' : '+ नयाँ रेकर्ड थप्नुहोस्'}</span>
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100 text-xs">
+                <span className="font-extrabold text-slate-800">
+                  {t('readRecordsTitle')} ({extractedRows.length})
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleAddNewPaperRow}
+                    className="text-xs text-emerald-700 font-bold hover:underline flex items-center gap-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{lang === 'en' ? 'Add Line' : 'लाइन थप्नुहोस्'}</span>
+                  </button>
+                  <span className="text-slate-300">|</span>
+                  <button
+                    onClick={handleApproveAllRows}
+                    className="text-emerald-700 font-bold hover:underline"
+                  >
+                    {t('approveAll')}
+                  </button>
+                </div>
+              </div>
 
-          <button
-            onClick={handleImportPaper}
-            disabled={isProcessing}
-            className="w-full py-2.5 rounded-xl bg-[#023c2e] hover:bg-[#034b39] text-white text-sm font-black shadow-xs flex items-center justify-center gap-1.5"
-          >
-            <CheckCircle2 className="w-4 h-4 text-[#f5d77f]" />
-            <span>{t('importApprovedToLedger')}</span>
-          </button>
+              <div className="space-y-1.5">
+                {extractedRows.map((row) => (
+                  <div
+                    key={row.id}
+                    className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 text-xs transition-all ${
+                      row.status === 'APPROVED'
+                        ? 'border-emerald-400 bg-emerald-50/30'
+                        : 'border-slate-200 bg-slate-50'
+                    }`}
+                  >
+                    <button
+                      onClick={() => handleToggleRow(row.id)}
+                      className={`w-6 h-6 rounded-md border flex items-center justify-center flex-shrink-0 ${
+                        row.status === 'APPROVED' ? 'bg-emerald-700 border-emerald-700 text-white' : 'bg-white border-slate-300'
+                      }`}
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                    </button>
+
+                    <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      <input
+                        type="text"
+                        value={row.partyName}
+                        onChange={(e) => handleUpdateRow(row.id, 'partyName', e.target.value)}
+                        className="p-1.5 rounded-lg border border-slate-300 font-bold bg-white text-xs"
+                        placeholder={lang === 'en' ? 'Name' : 'नाम'}
+                      />
+                      <input
+                        type="text"
+                        value={row.notes || row.productName}
+                        onChange={(e) => handleUpdateRow(row.id, 'notes', e.target.value)}
+                        className="p-1.5 rounded-lg border border-slate-300 bg-white text-xs"
+                        placeholder={lang === 'en' ? 'Notes / Item' : 'कैफियत'}
+                      />
+                      <div className="col-span-2 sm:col-span-1 flex items-center gap-1">
+                        <span className="font-bold text-slate-500">{t('rs')}</span>
+                        <input
+                          type="number"
+                          value={row.amount}
+                          onChange={(e) => handleUpdateRow(row.id, 'amount', e.target.value)}
+                          className="w-full p-1.5 rounded-lg border border-slate-300 font-black bg-white text-xs"
+                          placeholder={lang === 'en' ? 'Amount' : 'रकम'}
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handleDeleteRow(row.id)}
+                      className="p-1.5 text-slate-400 hover:text-red-600"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleAddNewPaperRow}
+                className="w-full py-2 rounded-xl border border-dashed border-slate-300 hover:border-emerald-500 text-slate-600 hover:text-emerald-800 text-xs font-bold flex items-center justify-center gap-1.5 bg-slate-50/50"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>{lang === 'en' ? '+ Add Another Line' : '+ अर्को नयाँ लाइन थप्नुहोस्'}</span>
+              </button>
+
+              <button
+                onClick={handleImportPaper}
+                disabled={isProcessing}
+                className="w-full py-2.5 rounded-xl bg-[#023c2e] hover:bg-[#034b39] text-white text-sm font-black shadow-xs flex items-center justify-center gap-1.5"
+              >
+                <CheckCircle2 className="w-4 h-4 text-[#f5d77f]" />
+                <span>{t('importApprovedToLedger')}</span>
+              </button>
+            </>
+          )}
+
+          {/* Toggle raw text read by OCR */}
+          {paperRawText && (
+            <div className="pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowRawText(!showRawText)}
+                className="text-[11px] font-bold text-slate-500 hover:text-slate-700 flex items-center gap-1"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>{showRawText ? (lang === 'en' ? 'Hide Scanned OCR Text' : 'पढिएका अक्षर लुकाउनुहोस्') : (lang === 'en' ? 'View Scanned OCR Text' : 'तस्बिरमा पढिएका सबै अक्षर हेर्नुहोस्')}</span>
+              </button>
+              {showRawText && (
+                <pre className="mt-1.5 p-2 rounded-lg bg-slate-100 text-slate-700 font-mono text-[11px] whitespace-pre-wrap max-h-36 overflow-y-auto border border-slate-200">
+                  {paperRawText}
+                </pre>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -874,6 +909,33 @@ export default function ScanView({ onImportSuccess }) {
                 <span className="text-[11px] text-red-600 font-semibold mt-0.5 block">
                   {lang === 'en' ? 'Product name is required' : 'सामानको नाम अनिवार्य छ'}
                 </span>
+              )}
+
+              {/* Clickable OCR Text Chips for 1-Tap Title Selection */}
+              {confirmationForm.extractedText?.length > 0 && (
+                <div className="mt-2 pt-1.5 border-t border-slate-100">
+                  <span className="text-[11px] font-bold text-slate-500 block mb-1">
+                    {lang === 'en' ? '💡 Click any text read from image to set as title:' : '💡 तस्बिरबाट पढिएका अक्षर (थिचेर सिधै नाम बनाउनुहोस्):'}
+                  </span>
+                  <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1">
+                    {confirmationForm.extractedText.map((line, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setConfirmationForm(prev => ({ ...prev, name: line }))}
+                        className={`px-2 py-1 rounded-lg border text-[11px] font-medium text-left transition-colors flex items-center gap-1 active:scale-95 ${
+                          confirmationForm.name === line 
+                            ? 'bg-emerald-100 border-emerald-400 text-emerald-950 font-bold' 
+                            : 'bg-slate-100 hover:bg-emerald-50 hover:border-emerald-300 border-slate-200 text-slate-700'
+                        }`}
+                        title="Click to use as Product Title"
+                      >
+                        <Tag className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                        <span>{line}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
 
