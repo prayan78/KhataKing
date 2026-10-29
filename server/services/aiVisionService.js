@@ -51,6 +51,7 @@ const NOISE_LINE_PATTERNS = [
 
 // Common known brands in Nepal Kirana & Pharmacy
 const KNOWN_BRANDS = [
+  'Lotte', 'Orion', 'Cadbury', 'Nestle',
   'Napa', 'Beximco', 'Square', 'Aristo', 'Deurali', 'Apex', 'Cipla', 'Sun Pharma',
   'Wai Wai', 'Rara', 'Current', '2PM', 'Maggi', 'Chaudhary Group', 'CG',
   'Dhara', 'Amrit', 'Fortune', 'Saffola',
@@ -58,6 +59,32 @@ const KNOWN_BRANDS = [
   'Dettol', 'Lifebuoy', 'Lux', 'Colgate', 'Closeup', 'Pepsodent', 'Sunsilk', 'Clinic Plus', 'Dove',
   'Tokla', 'Mechi', 'Red Bull', 'Coca-Cola', 'Coke', 'Fanta', 'Sprite', 'Pepsi', 'Frooti', 'Real'
 ];
+
+/**
+ * Clean OCR lines by stripping noise symbols (.-|, pipes, dashes, bullets)
+ * and correcting known cursive packaging font misreadings (e.g. Chiocopie -> Chocopie).
+ */
+export const cleanOcrTextLine = (line = '') => {
+  if (!line) return '';
+  let cleaned = line
+    // Replace vertical pipes, tilde, underscores, slashes, em-dashes with spaces
+    .replace(/[|~_—–\\/]+/g, ' ')
+    // Strip trailing and leading punctuation / noise symbols (., -, |, :, ;)
+    .replace(/^[\s.\-_:;,\/\\|]+|[\s.\-_:;,\/\\|]+$/g, '')
+    // Fix common OCR cursive packaging font misreadings
+    .replace(/\bchiocopie\b/gi, 'Chocopie')
+    .replace(/\bchokopie\b/gi, 'Chocopie')
+    .replace(/\bchocopi\b/gi, 'Chocopie')
+    .replace(/\bchioco\s*pie\b/gi, 'Choco Pie')
+    .replace(/\bwal\s*wal\b/gi, 'Wai Wai')
+    .replace(/\bcurent\b/gi, 'Current')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Strip any trailing non-word / punctuation characters remaining (like ".-|" or ".-")
+  cleaned = cleaned.replace(/[\s.\-_:;,\/\\|]+$/g, '').trim();
+  return cleaned;
+};
 
 /**
  * Check if buffer has valid image magic bytes (JPEG, PNG, WEBP, GIF)
@@ -116,7 +143,7 @@ export const performImageToTextOcr = async (imageInput) => {
 export const smartRecognizeProductFromOcrText = (rawOcrText = '', filename = '') => {
   const allLines = rawOcrText
     .split(/\r?\n/)
-    .map(line => line.trim())
+    .map(line => cleanOcrTextLine(line))
     .filter(line => line.length > 1);
 
   const fullCorpus = (filename + ' ' + rawOcrText).toLowerCase();
@@ -251,15 +278,24 @@ export const smartRecognizeProductFromOcrText = (rawOcrText = '', filename = '')
     if (!suggestedSellingPrice) suggestedSellingPrice = 260;
   }
 
-  // --- Check Category D: Biscuits & Bakery ---
-  else if (/\b(parle|good\s*day|biscuit|cookie|cookies|oreo|marie|bakery|bread)\b/i.test(normalizedCorpus)) {
+  // --- Check Category D: Biscuits, Bakery & Confectionery (Choco Pie, Cookies, Biscuits) ---
+  else if (/\b(chocopie|choco\s*pie|chiocopie|lotte|orion|parle|good\s*day|biscuit|cookie|cookies|oreo|marie|bakery|bread)\b/i.test(normalizedCorpus)) {
     category = 'Biscuits & Bakery';
-    unit = 'पोका';
-    confidence = 0.85;
-    brand = brand || 'Parle-G';
-    const bLine = cleanCandidateLines.find(l => /\b(biscuit|cookie|cookies|glucose)\b/i.test(l)) || 'Biscuits';
-    productName = `${brand} ${bLine}`.trim();
-    if (!suggestedSellingPrice) suggestedSellingPrice = 20;
+    unit = 'बट्टा';
+    confidence = 0.92;
+
+    if (/\b(chocopie|choco\s*pie|chiocopie|lotte|orion)\b/i.test(normalizedCorpus)) {
+      brand = brand || (normalizedCorpus.includes('orion') ? 'Orion' : 'Lotte');
+      unit = normalizedCorpus.includes('पोका') ? 'पोका' : 'बट्टा';
+      productName = `${brand} Choco Pie ${variant || size || ''}`.trim();
+      if (!suggestedSellingPrice) suggestedSellingPrice = 180;
+    } else {
+      brand = brand || 'Parle-G';
+      unit = 'पोका';
+      const bLine = cleanCandidateLines.find(l => /\b(biscuit|cookie|cookies|glucose)\b/i.test(l)) || 'Biscuits';
+      productName = `${brand} ${bLine}`.trim();
+      if (!suggestedSellingPrice) suggestedSellingPrice = 20;
+    }
   }
 
   // --- Check Category E: Personal Care & Hygiene ---
@@ -305,16 +341,17 @@ export const smartRecognizeProductFromOcrText = (rawOcrText = '', filename = '')
   // If still no title could be extracted:
   const needsReview = Boolean(!productName || confidence < 0.75 || category === 'Other');
 
+  const finalCleanTitle = cleanOcrTextLine(productName);
   return {
-    productName: productName.trim(),
-    nameEn: productName.trim(),
-    brand: brand.trim(),
+    productName: finalCleanTitle,
+    nameEn: finalCleanTitle,
+    brand: cleanOcrTextLine(brand),
     category,
-    variant: variant.trim(),
-    size: size.trim(),
+    variant: cleanOcrTextLine(variant),
+    size: cleanOcrTextLine(size),
     unit,
     barcode: null,
-    extractedText: allLines,
+    extractedText: allLines.map(l => cleanOcrTextLine(l)).filter(Boolean),
     confidence,
     needsReview,
     suggestedSellingPrice,

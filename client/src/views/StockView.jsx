@@ -16,7 +16,10 @@ import {
   Sparkles,
   X,
   AlertCircle,
-  Eye
+  Eye,
+  Edit,
+  Trash2,
+  CopyCheck
 } from 'lucide-react';
 
 export default function StockView({ products, onRefreshProducts }) {
@@ -53,6 +56,148 @@ export default function StockView({ products, onRefreshProducts }) {
 
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Edit Product Form State
+  const [editForm, setEditForm] = useState({
+    name: '',
+    nameEn: '',
+    sellingPrice: '',
+    costPrice: '',
+    stockQty: '',
+    unit: 'थान',
+    minStockAlert: '5',
+    category: 'किराना',
+    imageUrl: ''
+  });
+
+  // Open Edit Modal
+  const handleOpenEdit = (product) => {
+    setSelectedProduct(product);
+    setEditForm({
+      name: product.name || '',
+      nameEn: product.nameEn || '',
+      sellingPrice: product.sellingPrice || '',
+      costPrice: product.costPrice || '',
+      stockQty: product.stockQty !== undefined ? product.stockQty : '',
+      unit: product.unit || 'थान',
+      minStockAlert: product.minStockAlert !== undefined ? product.minStockAlert : '5',
+      category: product.category || 'किराना',
+      imageUrl: product.imageUrl || ''
+    });
+    setFormError('');
+    setModalType('edit_product');
+  };
+
+  // Submit Edit Product
+  const handleUpdateProduct = async (e) => {
+    e.preventDefault();
+    if (!editForm.name.trim() || !editForm.sellingPrice) {
+      setFormError('सामानको नाम र बिक्री मूल्य अनिवार्य छ');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setFormError('');
+
+    const payload = {
+      name: editForm.name.trim(),
+      nameEn: editForm.nameEn?.trim() || '',
+      sellingPrice: parseFloat(editForm.sellingPrice) || 0,
+      costPrice: parseFloat(editForm.costPrice) || 0,
+      stockQty: parseFloat(editForm.stockQty) || 0,
+      unit: editForm.unit,
+      minStockAlert: parseFloat(editForm.minStockAlert) || 5,
+      category: editForm.category,
+      imageUrl: editForm.imageUrl || ''
+    };
+
+    try {
+      try {
+        await apiFetch(`/api/products/${selectedProduct._id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      } catch (netErr) {
+        console.warn('Backend update product fallback to local:', netErr);
+      }
+
+      // Update local storage cache
+      const cached = getInitialProducts();
+      const idx = cached.findIndex(p => p._id === selectedProduct._id);
+      if (idx !== -1) {
+        cached[idx] = { ...cached[idx], ...payload };
+        setLocalStore('kk_cached_prods', cached);
+      }
+
+      onRefreshProducts();
+      setModalType(null);
+    } catch (err) {
+      setFormError(formatErrorMessage(err, lang));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Delete Product
+  const handleDeleteProduct = async (product) => {
+    const confirmMsg = lang === 'en'
+      ? `Are you sure you want to delete "${product.name}"?`
+      : `के तपाईं "${product.name}" सामान मेटाउन चाहनुहुन्छ?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      try {
+        await apiFetch(`/api/products/${product._id}`, {
+          method: 'DELETE'
+        });
+      } catch (netErr) {
+        console.warn('Backend delete product fallback to local:', netErr);
+      }
+
+      // Remove from local storage cache
+      const cached = getInitialProducts();
+      const filteredCache = cached.filter(p => p._id !== product._id);
+      setLocalStore('kk_cached_prods', filteredCache);
+
+      onRefreshProducts();
+    } catch (err) {
+      alert(formatErrorMessage(err, lang) || 'सामान हटाउन सकिएन');
+    }
+  };
+
+  // Merge Duplicates (Clean repeated products)
+  const handleMergeDuplicates = async () => {
+    const cached = getInitialProducts();
+    const map = new Map();
+    let hasDupes = false;
+
+    for (const p of cached) {
+      const key = (p.name || '').trim().toLowerCase();
+      if (!key) continue;
+      if (map.has(key)) {
+        hasDupes = true;
+        const existing = map.get(key);
+        existing.stockQty = (existing.stockQty || 0) + (p.stockQty || 0);
+        if (!existing.imageUrl && p.imageUrl) existing.imageUrl = p.imageUrl;
+        if (p.sellingPrice && p.sellingPrice > existing.sellingPrice) existing.sellingPrice = p.sellingPrice;
+      } else {
+        map.set(key, { ...p });
+      }
+    }
+
+    if (!hasDupes) {
+      alert(lang === 'en' ? 'No duplicate products found.' : 'कुनै पनि सामान दोहोरिएको भेटिएन।');
+      return;
+    }
+
+    const merged = Array.from(map.values());
+    setLocalStore('kk_cached_prods', merged);
+    alert(lang === 'en' 
+      ? `Successfully merged duplicate items! Inventory cleaned.` 
+      : `दोहोरिएका सामानहरू सफलतापूर्वक मिलाइयो! कुल ${merged.length} वटा सामान बाँकी छन्।`);
+    onRefreshProducts();
+  };
 
   // Common units in Nepali Kirana
   const units = ['थान', 'पोका', 'के.जी.', 'ग्राम', 'लिटर', 'बोतल', 'दर्जन', 'क्रेट'];
@@ -225,18 +370,28 @@ export default function StockView({ products, onRefreshProducts }) {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => { setFormError(''); setModalType('add_product'); }}
-            className="min-h-[52px] px-5 rounded-2xl bg-[#023c2e] hover:bg-[#034b39] text-white font-black text-base flex items-center justify-center gap-2 shadow-sm active:scale-95 transition-all"
+            className="min-h-[48px] px-4 rounded-2xl bg-[#023c2e] hover:bg-[#034b39] text-white font-black text-sm sm:text-base flex items-center justify-center gap-2 shadow-sm active:scale-95 transition-all"
           >
             <Plus className="w-5 h-5 text-[#f5d77f]" />
             <span>{t('addProduct')}</span>
           </button>
 
           <button
+            type="button"
+            onClick={handleMergeDuplicates}
+            className="min-h-[48px] px-3.5 rounded-2xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs sm:text-sm flex items-center gap-1.5 active:scale-95 transition-all shadow-2xs"
+            title="Clean & Merge Repeated Products"
+          >
+            <CopyCheck className="w-4 h-4 text-amber-700" />
+            <span>{lang === 'en' ? 'Clean Duplicates' : 'दोहोरिएका मिलाउने'}</span>
+          </button>
+
+          <button
             onClick={handleOpenHistory}
-            className="min-h-[52px] px-4 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-sm flex items-center justify-center gap-1.5 border border-slate-300"
+            className="min-h-[48px] px-3.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 border border-slate-300 active:scale-95"
             title="View Stock Movement Audit History"
           >
             <History className="w-4 h-4 text-slate-600" />
@@ -259,15 +414,16 @@ export default function StockView({ products, onRefreshProducts }) {
 
       {/* 3. Products List */}
       
-      {/* Mobile Compact Table (block sm:hidden) */}
+      {/* Mobile Compact Table (block sm:hidden) with BIGGER Images & Edit/Delete actions */}
       <div className="block sm:hidden overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xs">
         <table className="w-full text-left text-xs divide-y divide-slate-100">
           <thead className="bg-slate-50 text-[11px] font-black text-slate-500 uppercase tracking-wider">
             <tr>
-              <th className="py-2.5 px-2.5">{lang === 'en' ? 'Item & Photo' : 'तस्बिर / सामान'}</th>
-              <th className="py-2.5 px-2 text-right">{lang === 'en' ? 'Price' : 'बिक्री मूल्य'}</th>
-              <th className="py-2.5 px-2 text-center">{lang === 'en' ? 'Stock' : 'स्टक'}</th>
-              <th className="py-2.5 px-2 text-center">{lang === 'en' ? 'Adjust' : 'फेरबदल'}</th>
+              <th className="py-2.5 px-2.5">{lang === 'en' ? 'Photo & Item' : 'तस्बिर र सामान'}</th>
+              <th className="py-2.5 px-2 text-right">{lang === 'en' ? 'Price' : 'बिक्री'}</th>
+              <th className="py-2.5 px-1.5 text-center">{lang === 'en' ? 'Stock' : 'स्टक'}</th>
+              <th className="py-2.5 px-1.5 text-center">{lang === 'en' ? 'Adjust' : 'फेरबदल'}</th>
+              <th className="py-2.5 px-2 text-center">{lang === 'en' ? 'Action' : 'कार्य'}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 font-medium">
@@ -277,32 +433,32 @@ export default function StockView({ products, onRefreshProducts }) {
 
               return (
                 <tr key={p._id} className="hover:bg-slate-50/80 transition-colors">
-                  {/* Photo & Name */}
-                  <td className="py-2 px-2.5">
-                    <div className="flex items-center gap-2 min-w-0">
+                  {/* Photo (Bigger w-20 h-20) & Name */}
+                  <td className="py-2.5 px-2.5">
+                    <div className="flex items-center gap-2.5 min-w-0">
                       {p.imageUrl ? (
                         <button
                           type="button"
                           onClick={() => setPreviewImageUrl(p.imageUrl)}
-                          className="w-14 h-14 rounded-xl bg-white border border-slate-200 p-0.5 flex-shrink-0 flex items-center justify-center overflow-hidden shadow-2xs active:scale-95 hover:border-emerald-500"
+                          className="w-20 h-20 rounded-2xl bg-white border-2 border-slate-200 p-1 flex-shrink-0 flex items-center justify-center overflow-hidden shadow-xs active:scale-95 hover:border-emerald-600 transition-all"
                           title={lang === 'en' ? 'Click to enlarge photo' : 'तस्बिर ठूलो बनाएर हेर्नुहोस्'}
                         >
                           <img src={p.imageUrl} alt={p.name} className="w-full h-full object-contain" />
                         </button>
                       ) : (
-                        <div className="w-14 h-14 rounded-xl bg-slate-100 border border-slate-200 flex-shrink-0 flex items-center justify-center text-slate-400">
-                          <Package className="w-5 h-5 text-emerald-800/40" />
+                        <div className="w-20 h-20 rounded-2xl bg-slate-100 border-2 border-slate-200 flex-shrink-0 flex items-center justify-center text-slate-400">
+                          <Package className="w-8 h-8 text-emerald-800/40" />
                         </div>
                       )}
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-black text-slate-900 truncate leading-tight">{displayName}</p>
-                        <span className="text-[10px] text-slate-500 block">/{p.unit}</span>
+                        <p className="text-xs font-black text-slate-900 line-clamp-2 leading-tight">{displayName}</p>
+                        <span className="text-[10px] text-slate-500 font-semibold block mt-0.5">/{p.unit}</span>
                       </div>
                     </div>
                   </td>
 
                   {/* Price */}
-                  <td className="py-2 px-2 text-right whitespace-nowrap">
+                  <td className="py-2.5 px-2 text-right whitespace-nowrap">
                     <span className="font-black text-[#023c2e] text-xs">रु. {p.sellingPrice}</span>
                     {p.costPrice > 0 && (
                       <span className="block text-[10px] text-slate-400 font-bold">खरिद {p.costPrice}</span>
@@ -310,7 +466,7 @@ export default function StockView({ products, onRefreshProducts }) {
                   </td>
 
                   {/* Stock */}
-                  <td className="py-2 px-2 text-center whitespace-nowrap">
+                  <td className="py-2.5 px-1.5 text-center whitespace-nowrap">
                     <span className={`px-2 py-0.5 rounded-full text-[11px] font-black inline-block ${
                       isLow ? 'bg-red-100 text-red-700 animate-pulse' : 'bg-slate-100 text-slate-800'
                     }`}>
@@ -319,7 +475,7 @@ export default function StockView({ products, onRefreshProducts }) {
                   </td>
 
                   {/* Quick Adjust Buttons */}
-                  <td className="py-2 px-2 text-center whitespace-nowrap">
+                  <td className="py-2.5 px-1.5 text-center whitespace-nowrap">
                     <div className="flex items-center justify-center gap-1">
                       <button
                         type="button"
@@ -344,6 +500,28 @@ export default function StockView({ products, onRefreshProducts }) {
                         title={t('addStock')}
                       >
                         <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </td>
+
+                  {/* Action Buttons: Edit and Delete */}
+                  <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                    <div className="flex items-center justify-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEdit(p)}
+                        className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 active:scale-90 transition-all"
+                        title={lang === 'en' ? 'Edit Product' : 'सामान सच्याउनुहोस्'}
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteProduct(p)}
+                        className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 active:scale-90 transition-all"
+                        title={lang === 'en' ? 'Delete Product' : 'सामान मेटाउनुहोस्'}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </td>
@@ -414,16 +592,16 @@ export default function StockView({ products, onRefreshProducts }) {
                   {p.costPrice ? `${t('costLabel')} रु. ${p.costPrice}` : ''}
                 </span>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => {
                       setSelectedProduct(p);
                       setAdjustForm({ delta: '1', type: 'reduce', reason: lang === 'en' ? 'Sale or Damage' : 'बिक्री वा क्षति' });
                       setModalType('adjust_stock');
                     }}
-                    className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-black text-xs flex items-center gap-1.5 border border-slate-300"
+                    className="min-h-[38px] px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-black text-xs flex items-center gap-1 border border-slate-300"
                   >
-                    <ArrowDownCircle className="w-4 h-4 text-red-600" />
+                    <ArrowDownCircle className="w-3.5 h-3.5 text-red-600" />
                     <span>{t('reduceStock')}</span>
                   </button>
 
@@ -433,10 +611,26 @@ export default function StockView({ products, onRefreshProducts }) {
                       setAdjustForm({ delta: '10', type: 'add', reason: lang === 'en' ? 'New Purchase Stock' : 'नयाँ खरिद स्टक थप' });
                       setModalType('adjust_stock');
                     }}
-                    className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-950 font-black text-xs flex items-center gap-1.5 border border-emerald-400"
+                    className="min-h-[38px] px-2.5 py-1.5 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-950 font-black text-xs flex items-center gap-1 border border-emerald-400"
                   >
-                    <ArrowUpCircle className="w-4 h-4 text-emerald-700" />
+                    <ArrowUpCircle className="w-3.5 h-3.5 text-emerald-700" />
                     <span>{t('addStock')}</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleOpenEdit(p)}
+                    className="min-h-[38px] px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs flex items-center gap-1 border border-blue-200"
+                    title="Edit Product"
+                  >
+                    <Edit className="w-3.5 h-3.5" />
+                  </button>
+
+                  <button
+                    onClick={() => handleDeleteProduct(p)}
+                    className="min-h-[38px] px-2.5 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs flex items-center gap-1 border border-red-200"
+                    title="Delete Product"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
@@ -482,7 +676,151 @@ export default function StockView({ products, onRefreshProducts }) {
         </div>
       )}
 
-      {/* ================= MODAL: ADD PRODUCT ================= */}
+            {/* ================= MODAL: EDIT PRODUCT ================= */}
+      {modalType === 'edit_product' && selectedProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-6 border border-slate-200 max-h-[92vh] overflow-y-auto animate-in fade-in">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 mb-4">
+              <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
+                <Edit className="w-5 h-5 text-blue-700" />
+                <span>{lang === 'en' ? 'Edit Product' : 'सामानको विवरण सच्याउनुहोस्'}</span>
+              </h3>
+              <button onClick={() => setModalType(null)} className="p-2 text-slate-400 hover:text-slate-700">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {formError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-300 text-red-800 rounded-xl flex items-center gap-2 text-sm font-bold">
+                <AlertCircle className="w-4 h-4 text-red-700 flex-shrink-0" />
+                <span>{formError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleUpdateProduct} className="space-y-4 text-sm font-bold">
+              {/* Product Image Preview & Change */}
+              <div className="space-y-1.5">
+                <label className="text-slate-700">{lang === 'en' ? 'Product Image' : 'सामानको तस्बिर'}</label>
+                <div className="flex items-center gap-3">
+                  <div className="w-20 h-20 rounded-2xl bg-slate-50 border-2 border-slate-200 p-1 flex items-center justify-center overflow-hidden">
+                    {editForm.imageUrl ? (
+                      <img src={editForm.imageUrl} alt="Edit preview" className="w-full h-full object-contain" />
+                    ) : (
+                      <Package className="w-8 h-8 text-slate-400" />
+                    )}
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold border border-slate-300 flex items-center gap-1.5"
+                    >
+                      <Camera className="w-4 h-4 text-emerald-800" />
+                      <span>{lang === 'en' ? 'Change Photo' : 'तस्बिर बदल्नुहोस्'}</span>
+                    </button>
+                    {editForm.imageUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setEditForm(prev => ({ ...prev, imageUrl: '' }))}
+                        className="text-xs text-red-600 hover:underline block"
+                      >
+                        {lang === 'en' ? 'Remove Photo' : 'तस्बिर हटाउनुहोस्'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-slate-700">{lang === 'en' ? 'Product Name *' : 'सामानको नाम *'}</label>
+                <input
+                  type="text"
+                  required
+                  value={editForm.name}
+                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                  className="w-full min-h-[48px] px-3.5 rounded-xl border border-slate-300 text-slate-900 font-black mt-1"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-slate-700">{lang === 'en' ? 'Selling Price (Rs.) *' : 'बिक्री मूल्य (रु.) *'}</label>
+                  <input
+                    type="number"
+                    required
+                    value={editForm.sellingPrice}
+                    onChange={(e) => setEditForm({ ...editForm, sellingPrice: e.target.value })}
+                    className="w-full min-h-[48px] px-3.5 rounded-xl border border-slate-300 text-[#023c2e] font-black text-lg mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-700">{lang === 'en' ? 'Cost Price (Rs.)' : 'खरिद मूल्य (रु.)'}</label>
+                  <input
+                    type="number"
+                    value={editForm.costPrice}
+                    onChange={(e) => setEditForm({ ...editForm, costPrice: e.target.value })}
+                    className="w-full min-h-[48px] px-3.5 rounded-xl border border-slate-300 text-slate-700 font-bold mt-1"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-slate-700">{lang === 'en' ? 'Stock Quantity' : 'स्टक परिमाण'}</label>
+                  <input
+                    type="number"
+                    value={editForm.stockQty}
+                    onChange={(e) => setEditForm({ ...editForm, stockQty: e.target.value })}
+                    className="w-full min-h-[48px] px-3.5 rounded-xl border border-slate-300 text-slate-900 font-black mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-700">{lang === 'en' ? 'Unit' : 'एकाइ'}</label>
+                  <select
+                    value={editForm.unit}
+                    onChange={(e) => setEditForm({ ...editForm, unit: e.target.value })}
+                    className="w-full min-h-[48px] px-3.5 rounded-xl border border-slate-300 bg-white font-bold mt-1"
+                  >
+                    {units.map((u) => (
+                      <option key={u} value={u}>{u}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => handleDeleteProduct(selectedProduct)}
+                  className="px-4 py-3 rounded-2xl bg-red-50 hover:bg-red-100 text-red-700 font-extrabold text-xs border border-red-200 flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>{lang === 'en' ? 'Delete' : 'मेटाउनुहोस्'}</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setModalType(null)}
+                    className="px-4 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
+                  >
+                    {lang === 'en' ? 'Cancel' : 'रद्द गर्नुहोस्'}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="px-5 py-3 rounded-2xl bg-[#023c2e] hover:bg-[#034b39] text-white font-black text-sm flex items-center gap-1.5 shadow-md disabled:opacity-50"
+                  >
+                    <span>{lang === 'en' ? 'Save Changes' : 'सुरक्षित गर्नुहोस्'}</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+{/* ================= MODAL: ADD PRODUCT ================= */}
       {modalType === 'add_product' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs">
           <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-6 border border-slate-200 max-h-[92vh] overflow-y-auto animate-in fade-in">

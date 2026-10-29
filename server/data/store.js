@@ -472,6 +472,49 @@ class KiranaStore {
     return newProd;
   }
 
+  async updateProduct(shopId = DEFAULT_SHOP_ID, productId, updateData) {
+    let updated = null;
+    if (getDBStatus().isConnected) {
+      try {
+        updated = await Product.findByIdAndUpdate(productId, { $set: updateData }, { new: true });
+        if (updated && updated.toObject) updated = updated.toObject();
+      } catch (e) {
+        console.warn('Mongo updateProduct fallback:', e.message);
+      }
+    }
+
+    const idx = this.data.products.findIndex(p => p._id === productId);
+    if (idx !== -1) {
+      this.data.products[idx] = {
+        ...this.data.products[idx],
+        ...updateData,
+        updatedAt: new Date().toISOString()
+      };
+      if (!updated) updated = this.data.products[idx];
+      this.persist();
+    }
+
+    return updated;
+  }
+
+  async deleteProduct(shopId = DEFAULT_SHOP_ID, productId) {
+    if (getDBStatus().isConnected) {
+      try {
+        await Product.findByIdAndDelete(productId);
+      } catch (e) {
+        console.warn('Mongo deleteProduct fallback:', e.message);
+      }
+    }
+
+    const initialLen = this.data.products.length;
+    this.data.products = this.data.products.filter(p => p._id !== productId);
+    if (this.data.products.length !== initialLen) {
+      this.persist();
+      return true;
+    }
+    return false;
+  }
+
   async adjustStock(shopId = DEFAULT_SHOP_ID, productId, delta, reason = 'म्यानुअल फेरबदल') {
     let prod = null;
     let beforeQty = 0;

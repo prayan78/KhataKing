@@ -126,6 +126,29 @@ router.post('/products/:id/adjust', async (req, res) => {
   }
 });
 
+// Update product details
+router.put('/products/:id', async (req, res) => {
+  try {
+    const updated = await store.updateProduct('shop_kirana_001', req.params.id, req.body);
+    if (!updated) {
+      return res.status(404).json({ success: false, error: 'सामान फेला परेन (Product not found)' });
+    }
+    res.json({ success: true, product: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Delete product
+router.delete('/products/:id', async (req, res) => {
+  try {
+    await store.deleteProduct('shop_kirana_001', req.params.id);
+    res.json({ success: true, message: 'सामान हटाइयो (Product deleted)' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // 3. Sales
 router.get('/sales', async (req, res) => {
   try {

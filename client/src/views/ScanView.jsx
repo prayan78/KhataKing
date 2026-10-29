@@ -25,6 +25,27 @@ import {
   ShoppingBag
 } from 'lucide-react';
 
+/**
+ * Clean product title and strip trailing/leading noise symbols (like ".-|")
+ * and correct common OCR font misreadings (e.g. Chiocopie -> Chocopie).
+ */
+export const cleanProductTitle = (str = '') => {
+  if (!str) return '';
+  let cleaned = str
+    .replace(/[|~_—–\\]+/g, ' ')
+    .replace(/^[\s.\-_:;,\/\\|]+|[\s.\-_:;,\/\\|]+$/g, '')
+    .replace(/\bchiocopie\b/gi, 'Chocopie')
+    .replace(/\bchokopie\b/gi, 'Chocopie')
+    .replace(/\bchocopi\b/gi, 'Chocopie')
+    .replace(/\bchioco\s*pie\b/gi, 'Choco Pie')
+    .replace(/\bwal\s*wal\b/gi, 'Wai Wai')
+    .replace(/\bcurent\b/gi, 'Current')
+    .replace(/\s+/g, ' ')
+    .trim();
+  cleaned = cleaned.replace(/[\s.\-_:;,\/\\|]+$/g, '').trim();
+  return cleaned;
+};
+
 // Standardized categories for Kirana and Retail
 const PRODUCT_CATEGORIES = [
   'Medicine',
@@ -278,18 +299,19 @@ export default function ScanView({ onImportSuccess }) {
           product = getFallbackRecords('single_product', file.name);
         }
 
-        const name = product.productName || product.name || '';
+        const name = cleanProductTitle(product.productName || product.name || '');
         const category = product.category || 'Other';
         const conf = typeof product.confidence === 'number' ? product.confidence : 0.5;
         const needsReview = Boolean(product.needsReview || !name || conf < 0.75 || category === 'Other');
+        const cleanLines = (product.extractedText || []).map(t => cleanProductTitle(t)).filter(Boolean);
 
         setConfirmationForm({
           name,
-          nameEn: product.nameEn || name,
-          brand: product.brand || '',
+          nameEn: cleanProductTitle(product.nameEn || name),
+          brand: cleanProductTitle(product.brand || ''),
           category,
-          variant: product.variant || '',
-          size: product.size || '',
+          variant: cleanProductTitle(product.variant || ''),
+          size: cleanProductTitle(product.size || ''),
           sellingPrice: product.sellingPrice || product.suggestedSellingPrice || '',
           costPrice: product.costPrice || product.suggestedCostPrice || '',
           stockQty: product.stockQty !== undefined ? product.stockQty : 10,
@@ -297,7 +319,7 @@ export default function ScanView({ onImportSuccess }) {
           barcode: product.barcode || '',
           confidence: conf,
           needsReview,
-          extractedText: product.extractedText || [],
+          extractedText: cleanLines,
           imageUrl: whiteBgImage || URL.createObjectURL(file)
         });
       } else if (scanMode === 'rack_shelf') {
@@ -471,11 +493,24 @@ export default function ScanView({ onImportSuccess }) {
           body: JSON.stringify(prodPayload)
         });
       } catch (e) {
-        // Fallback local products
-        const prods = getInitialProducts();
-        prods.unshift({ _id: 'prod_' + Date.now(), ...prodPayload });
-        setLocalStore('kk_cached_prods', prods);
+        console.warn('Backend product save fallback to local:', e);
       }
+
+      // Update local products cache with deduplication (prevent duplicate rows)
+      const prods = getInitialProducts();
+      const existingIdx = prods.findIndex(p => 
+        (prodPayload.barcode && p.barcode && p.barcode === prodPayload.barcode) ||
+        (p.name && p.name.trim().toLowerCase() === prodPayload.name.toLowerCase())
+      );
+      if (existingIdx !== -1) {
+        prods[existingIdx].stockQty = (prods[existingIdx].stockQty || 0) + (prodPayload.stockQty || 0);
+        prods[existingIdx].sellingPrice = prodPayload.sellingPrice;
+        if (prodPayload.costPrice) prods[existingIdx].costPrice = prodPayload.costPrice;
+        if (prodPayload.imageUrl) prods[existingIdx].imageUrl = prodPayload.imageUrl;
+      } else {
+        prods.unshift({ _id: 'prod_' + Date.now(), ...prodPayload });
+      }
+      setLocalStore('kk_cached_prods', prods);
       setSuccessMessage(
         lang === 'en' 
           ? `"${prodPayload.name}" (${prodPayload.category}) added to inventory successfully!` 
@@ -858,33 +893,15 @@ export default function ScanView({ onImportSuccess }) {
             </div>
           )}
 
-          {/* 2. Isolated White-Background Image & Live Preview */}
+          {/* 2. Isolated White-Background Image Preview (Only Image Needed) */}
           {confirmationForm.imageUrl && (
-            <div className="flex items-center gap-3 p-2 bg-slate-50 rounded-xl border border-slate-200">
-              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-lg bg-white border border-slate-300 p-1 flex-shrink-0 flex items-center justify-center shadow-xs">
+            <div className="flex justify-center p-2.5 bg-slate-50/80 rounded-2xl border border-slate-200">
+              <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-xl bg-white border-2 border-slate-200 p-1.5 flex items-center justify-center shadow-xs overflow-hidden">
                 <img 
                   src={confirmationForm.imageUrl} 
                   alt="Product Studio" 
                   className="w-full h-full object-contain"
                 />
-              </div>
-              <div className="text-xs flex-1">
-                <span className="font-extrabold text-emerald-900 flex items-center gap-1">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                  {t('whiteStudioBadge')}
-                </span>
-                <p className="text-slate-500 text-[11px] mt-0.5">
-                  {lang === 'en' ? 'Automatic background removed for crisp kirana catalog' : 'सेतो स्टुडियो पृष्ठभूमिमा राखिएको तस्बिर'}
-                </p>
-                {confirmationForm.extractedText?.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {confirmationForm.extractedText.slice(0, 4).map((word, idx) => (
-                      <span key={idx} className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 text-[10px] font-mono">
-                        {word}
-                      </span>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
           )}
@@ -922,7 +939,7 @@ export default function ScanView({ onImportSuccess }) {
                       <button
                         key={idx}
                         type="button"
-                        onClick={() => setConfirmationForm(prev => ({ ...prev, name: line }))}
+                        onClick={() => setConfirmationForm(prev => ({ ...prev, name: cleanProductTitle(line) }))}
                         className={`px-2 py-1 rounded-lg border text-[11px] font-medium text-left transition-colors flex items-center gap-1 active:scale-95 ${
                           confirmationForm.name === line 
                             ? 'bg-emerald-100 border-emerald-400 text-emerald-950 font-bold' 
