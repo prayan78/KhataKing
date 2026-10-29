@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useLanguage } from '../context/LanguageContext';
-import { processProductToWhiteBackground } from '../utils/imageUtils';
-import { getApiBaseUrl, apiFetch, getInitialProducts, setLocalStore, formatErrorMessage } from '../utils/api';
+import { processProductToWhiteBackground, processDocumentImage } from '../utils/imageUtils';
+import { getApiBaseUrl, apiFetch, getInitialProducts, getInitialCustomers, getInitialSuppliers, setLocalStore, formatErrorMessage } from '../utils/api';
 import { 
   Camera, 
   Upload, 
@@ -32,7 +32,7 @@ import {
 export const cleanProductTitle = (str = '') => {
   if (!str) return '';
   let cleaned = str
-    .replace(/[|~_—–\\]+/g, ' ')
+    .replace(/[|~_—–\\/]+/g, ' ')
     .replace(/^[\s.\-_:;,\/\\|]+|[\s.\-_:;,\/\\|]+$/g, '')
     .replace(/\bchiocopie\b/gi, 'Chocopie')
     .replace(/\bchokopie\b/gi, 'Chocopie')
@@ -233,6 +233,12 @@ export default function ScanView({ onImportSuccess }) {
       formData.append('image', file);
 
       if (scanMode === 'paper') {
+        try {
+          const docDataUrl = await processDocumentImage(file);
+          setPreviewImage(docDataUrl);
+        } catch (e) {
+          console.warn('Doc preview process fallback:', e);
+        }
         let records = null;
         try {
           const res = await fetch(`${baseUrl}/api/ocr/scan`, { 
@@ -244,7 +250,11 @@ export default function ScanView({ onImportSuccess }) {
           if (text.trim().startsWith('{')) {
             const data = JSON.parse(text);
             if (data.success && data.records) {
-              records = data.records;
+              records = data.records.map(rec => ({
+                ...rec,
+                partyName: cleanProductTitle(rec.partyName || ''),
+                notes: cleanProductTitle(rec.notes || '')
+              }));
               setBatchId(data.batchId);
               if (data.rawText) setPaperRawText(data.rawText);
             }
@@ -438,7 +448,39 @@ export default function ScanView({ onImportSuccess }) {
         });
         if (data && data.importedCount) importedCount = data.importedCount;
       } catch (e) {
-        console.warn('Backend import fallback to local:', e);
+        console.warn('Backend import fallback to local with deduplication:', e);
+        const currentCusts = getInitialCustomers();
+        const currentSupps = getInitialSuppliers();
+        for (const rec of approved) {
+          if (rec.category === 'CUSTOMER_CREDIT' || rec.category === 'CUSTOMER_PAYMENT') {
+            const found = currentCusts.find(c => c.name.toLowerCase() === rec.partyName.toLowerCase());
+            if (found) {
+              if (rec.category === 'CUSTOMER_CREDIT') found.totalUdharo = (found.totalUdharo || 0) + rec.amount;
+              else found.totalUdharo = Math.max(0, (found.totalUdharo || 0) - rec.amount);
+            } else {
+              currentCusts.push({
+                _id: 'cust_' + Date.now() + '_' + Math.random().toString(36).substring(7),
+                name: rec.partyName,
+                phone: rec.phone || '',
+                totalUdharo: rec.category === 'CUSTOMER_CREDIT' ? rec.amount : 0
+              });
+            }
+          } else if (rec.category === 'SUPPLIER_PAYABLE') {
+            const found = currentSupps.find(s => s.name.toLowerCase() === rec.partyName.toLowerCase());
+            if (found) {
+              found.totalPayable = (found.totalPayable || 0) + rec.amount;
+            } else {
+              currentSupps.push({
+                _id: 'supp_' + Date.now() + '_' + Math.random().toString(36).substring(7),
+                name: rec.partyName,
+                phone: rec.phone || '',
+                totalPayable: rec.amount
+              });
+            }
+          }
+        }
+        setLocalStore('khataking_customers', currentCusts);
+        setLocalStore('khataking_suppliers', currentSupps);
       }
       setSuccessMessage(lang === 'en' ? `Successfully imported ${importedCount} records to ledger!` : `सफलतापूर्वक ${importedCount} वटा रेकर्ड खातामा चढाइयो!`);
       if (onImportSuccess) onImportSuccess();
@@ -714,8 +756,12 @@ export default function ScanView({ onImportSuccess }) {
       )}
 
       {/* ================= SECTION A: PAPER SCAN REVIEW ================= */}
+      {/* ================= SECTION A: PAPER SCAN REVIEW ================= */}
       {scanMode === 'paper' && previewImage && (
         <div className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-xs space-y-2.5 animate-in fade-in">
+          <div className="w-full bg-slate-50 border border-slate-200 rounded-xl overflow-hidden p-1 flex justify-center items-center">
+            <img src={previewImage} alt="Scanned Document" className="w-full max-h-56 object-contain rounded-lg shadow-2xs" />
+          </div>
           {extractedRows.length === 0 ? (
             <div className="text-center py-5 px-3 space-y-3">
               <div className="w-12 h-12 mx-auto rounded-full bg-amber-50 text-amber-700 flex items-center justify-center border border-amber-200">

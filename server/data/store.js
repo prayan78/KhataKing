@@ -1148,6 +1148,23 @@ class KiranaStore {
           notes: rec.notes || 'कागज स्क्यान मार्फत प्राप्त भुक्तानी'
         });
         imported++;
+      } else if (rec.category === 'SUPPLIER_PAYABLE' && rec.partyName && rec.amount > 0) {
+        let supp = this.data.suppliers.find(s => s.name.toLowerCase() === rec.partyName.toLowerCase());
+        if (!supp) {
+          supp = await this.createSupplier(shopId, {
+            name: rec.partyName,
+            phone: rec.phone || '',
+            totalPayable: 0
+          });
+        }
+        await this.addUdharoEntry(shopId, {
+          partyType: 'Supplier',
+          partyId: supp._id,
+          amount: rec.amount,
+          entryType: 'PURCHASE_CREDIT',
+          notes: rec.notes || `कागज स्क्यान मार्फत साहु उधारो (${rec.productName || 'स्टक खरिद'})`
+        });
+        imported++;
       } else if (rec.category === 'SALE_CASH' && rec.amount > 0) {
         await this.createSale(shopId, {
           items: [{ name: rec.productName || 'स्क्यान गरिएको सामान', quantity: rec.quantity || 1, unitPrice: rec.amount, lineTotal: rec.amount }],

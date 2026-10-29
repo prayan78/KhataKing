@@ -176,3 +176,91 @@ export const processProductToWhiteBackground = (fileOrUrl) => {
   });
 };
 
+
+/**
+ * Document & Paper Ledger Image Processing
+ * - Maximizes horizontal width so bill lines and numbers occupy full space
+ * - Sharpens ink contrast for handwriting & receipts
+ * - Compresses strictly to a MAXIMUM of 15 KB (never saves to disk/project folder)
+ */
+export const processDocumentImage = (fileOrUrl) => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+
+    img.onload = () => {
+      try {
+        const origW = img.naturalWidth || img.width;
+        const origH = img.naturalHeight || img.height;
+
+        // Occupy all horizontal space (340px width with proportional height)
+        const targetW = 340;
+        const targetH = Math.max(160, Math.min(480, Math.round(targetW * (origH / origW))));
+
+        const canvas = document.createElement('canvas');
+        canvas.width = targetW;
+        canvas.height = targetH;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+        // Draw document occupying 100% of horizontal space
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, targetW, targetH);
+        ctx.drawImage(img, 0, 0, origW, origH, 0, 0, targetW, targetH);
+
+        // Enhance text & ink contrast
+        const imgData = ctx.getImageData(0, 0, targetW, targetH);
+        const d = imgData.data;
+        for (let i = 0; i < d.length; i += 4) {
+          const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+          // Slight contrast stretch to make faint pen/pencil ink darker and paper whiter
+          const contrasted = gray < 135 ? Math.max(0, gray * 0.72) : Math.min(255, gray * 1.08);
+          d[i] = contrasted;
+          d[i + 1] = contrasted;
+          d[i + 2] = contrasted;
+        }
+        ctx.putImageData(imgData, 0, 0);
+
+        // Compress strictly to <= 15 KB (15,360 bytes => ~20,000 base64 chars)
+        let quality = 0.78;
+        let dataUrl = canvas.toDataURL('image/jpeg', quality);
+
+        while (dataUrl.length > 20000 && quality > 0.25) {
+          quality -= 0.08;
+          dataUrl = canvas.toDataURL('image/jpeg', quality);
+        }
+
+        while (dataUrl.length > 20000 && canvas.width > 160) {
+          const downCanvas = document.createElement('canvas');
+          downCanvas.width = Math.round(canvas.width * 0.85);
+          downCanvas.height = Math.round(canvas.height * 0.85);
+          const dCtx = downCanvas.getContext('2d');
+          dCtx.fillStyle = '#FFFFFF';
+          dCtx.fillRect(0, 0, downCanvas.width, downCanvas.height);
+          dCtx.drawImage(canvas, 0, 0, downCanvas.width, downCanvas.height);
+          dataUrl = downCanvas.toDataURL('image/jpeg', 0.65);
+          canvas.width = downCanvas.width;
+          canvas.height = downCanvas.height;
+          ctx.drawImage(downCanvas, 0, 0);
+        }
+
+        resolve(dataUrl);
+      } catch (err) {
+        console.warn('Document processing fallback:', err);
+        resolve(typeof fileOrUrl === 'string' ? fileOrUrl : URL.createObjectURL(fileOrUrl));
+      }
+    };
+
+    img.onerror = () => {
+      resolve(typeof fileOrUrl === 'string' ? fileOrUrl : URL.createObjectURL(fileOrUrl));
+    };
+
+    if (typeof fileOrUrl === 'string') {
+      img.src = fileOrUrl;
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => { img.src = e.target.result; };
+      reader.onerror = reject;
+      reader.readAsDataURL(fileOrUrl);
+    }
+  });
+};
