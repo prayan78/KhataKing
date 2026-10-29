@@ -11,10 +11,12 @@ import {
   ShoppingBag,
   CreditCard,
   Banknote,
-  AlertCircle
+  AlertCircle,
+  Receipt,
+  ArrowRight
 } from 'lucide-react';
 
-export default function SalesView({ products, customers, onSaleCompleted, onAddCustomer }) {
+export default function SalesView({ products, customers, onSaleCompleted, onViewReceipt, onAddCustomer }) {
   const { t, lang } = useLanguage();
 
   // Mode: 'cash' or 'credit'
@@ -28,6 +30,24 @@ export default function SalesView({ products, customers, onSaleCompleted, onAddC
   const [receivedAmount, setReceivedAmount] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [recentSales, setRecentSales] = useState([]);
+
+  // Fetch recent sales so shopkeeper always sees their persisted sales even after reload
+  const fetchRecentSales = async () => {
+    try {
+      const res = await fetch('/api/sales');
+      const data = await res.json();
+      if (data.success && data.sales) {
+        setRecentSales(data.sales);
+      }
+    } catch (e) {
+      console.warn('Could not load recent sales:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchRecentSales();
+  }, []);
 
   // Cart calculation
   const grandTotal = cart.reduce((sum, item) => sum + item.lineTotal, 0);
@@ -150,6 +170,7 @@ export default function SalesView({ products, customers, onSaleCompleted, onAddC
       setSelectedCustomerId('');
       setNewCustomerName('');
       setReceivedAmount('');
+      fetchRecentSales();
       onSaleCompleted(data.sale);
     } catch (err) {
       setErrorMessage(err.message);
@@ -479,6 +500,65 @@ export default function SalesView({ products, customers, onSaleCompleted, onAddC
           })}
         </div>
       </div>
+
+      {/* 5. Recent Completed Sales (Persisted & visible even on reload!) */}
+      {recentSales.length > 0 && (
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+            <div>
+              <h3 className="text-base sm:text-lg font-black text-slate-900 flex items-center gap-2">
+                <Receipt className="w-5 h-5 text-[#023c2e]" />
+                <span>{t('todaySalesTitle')}</span>
+              </h3>
+              <p className="text-xs text-slate-500 font-semibold">{t('todaySalesSub')}</p>
+            </div>
+            <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-900 text-xs font-black">
+              {recentSales.length} {t('itemsCount')}
+            </span>
+          </div>
+
+          <div className="divide-y divide-slate-100 max-h-80 overflow-y-auto pr-1">
+            {recentSales.map((sale) => (
+              <div
+                key={sale._id}
+                onClick={() => onViewReceipt && onViewReceipt(sale)}
+                className="py-2.5 px-2 rounded-xl flex items-center justify-between hover:bg-slate-50 cursor-pointer transition-colors"
+              >
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-black text-slate-900 text-sm">{sale.saleNumber}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                      sale.paymentType === 'cash' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                    }`}>
+                      {sale.paymentType === 'cash' ? (lang === 'en' ? 'Cash' : 'नगद') : (lang === 'en' ? 'Credit' : 'उधारो')}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 font-semibold mt-0.5">
+                    {sale.customerName} • {new Date(sale.date).toLocaleTimeString(lang === 'en' ? 'en-US' : 'ne-NP', { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+
+                <div className="text-right flex items-center gap-3">
+                  <span className="text-base sm:text-lg font-black text-[#023c2e]">
+                    रु. {sale.grandTotal.toLocaleString()}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (onViewReceipt) onViewReceipt(sale);
+                    }}
+                    className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold hidden sm:inline-flex items-center gap-1"
+                  >
+                    <span>{t('viewReceiptBtn')}</span>
+                    <ArrowRight className="w-3.5 h-3.5 text-slate-500" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
     </div>
   );

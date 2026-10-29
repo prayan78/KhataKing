@@ -100,6 +100,7 @@ function MainApp() {
                 products={products}
                 customers={customers}
                 onSaleCompleted={handleSaleCompleted}
+                onViewReceipt={(sale) => setCurrentReceipt(sale)}
                 onAddCustomer={() => setActiveTab('udharo')}
               />
             )}

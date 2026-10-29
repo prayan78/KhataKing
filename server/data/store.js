@@ -470,15 +470,39 @@ class KiranaStore {
   }
 
   async adjustStock(shopId = DEFAULT_SHOP_ID, productId, delta, reason = 'म्यानुअल फेरबदल') {
-    let prod = this.data.products.find(p => p._id === productId);
+    let prod = null;
+    let beforeQty = 0;
+    let afterQty = 0;
+
+    if (getDBStatus().isConnected) {
+      try {
+        const p = await Product.findById(productId);
+        if (p) {
+          beforeQty = p.stockQty;
+          afterQty = beforeQty + delta;
+          p.stockQty = afterQty;
+          await p.save();
+          prod = p.toObject ? p.toObject() : p;
+        }
+      } catch (e) {
+        console.warn('Mongo adjustStock fallback:', e.message);
+      }
+    }
+
+    let localProd = this.data.products.find(p => p._id === productId);
+    if (localProd) {
+      if (!prod) {
+        beforeQty = localProd.stockQty;
+        afterQty = beforeQty + delta;
+        prod = localProd;
+      }
+      localProd.stockQty = afterQty;
+    }
+
     if (!prod) return null;
 
-    const beforeQty = prod.stockQty;
-    const afterQty = beforeQty + delta;
-    prod.stockQty = afterQty;
-
     const movement = {
-      _id: 'sm_' + Date.now(),
+      _id: 'sm_' + Date.now() + '_' + Math.random().toString(36).substring(7),
       shopId,
       productId,
       productName: prod.name,
@@ -490,6 +514,12 @@ class KiranaStore {
       date: new Date().toISOString()
     };
 
+    if (getDBStatus().isConnected) {
+      try {
+        await StockMovement.create(movement);
+      } catch (e) {}
+    }
+
     this.data.stockMovements.unshift(movement);
     this.persist();
     return { product: prod, movement };
@@ -497,6 +527,22 @@ class KiranaStore {
 
   // Customers (Receivables)
   async getCustomers(shopId = DEFAULT_SHOP_ID, search = '') {
+    if (getDBStatus().isConnected) {
+      try {
+        const q = { shopId };
+        if (search) {
+          q.$or = [
+            { name: { $regex: search, $options: 'i' } },
+            { phone: { $regex: search, $options: 'i' } }
+          ];
+        }
+        const list = await Customer.find(q).sort({ lastTransactionDate: -1, name: 1 }).lean();
+        if (list && list.length > 0) return list;
+      } catch (e) {
+        console.warn('Mongo getCustomers fallback:', e.message);
+      }
+    }
+
     let list = this.data.customers;
     if (search) {
       const s = search.toLowerCase();
@@ -510,7 +556,7 @@ class KiranaStore {
 
   async createCustomer(shopId = DEFAULT_SHOP_ID, data) {
     const newCust = {
-      _id: 'cust_' + Date.now(),
+      _id: 'cust_' + Date.now() + '_' + Math.random().toString(36).substring(7),
       shopId,
       name: data.name,
       phone: data.phone || '',
@@ -520,6 +566,15 @@ class KiranaStore {
       lastTransactionDate: new Date().toISOString(),
       createdAt: new Date().toISOString()
     };
+
+    if (getDBStatus().isConnected) {
+      try {
+        await Customer.create(newCust);
+      } catch (e) {
+        console.warn('Mongo createCustomer fallback:', e.message);
+      }
+    }
+
     this.data.customers.unshift(newCust);
     this.persist();
     return newCust;
@@ -527,6 +582,22 @@ class KiranaStore {
 
   // Suppliers (Payables)
   async getSuppliers(shopId = DEFAULT_SHOP_ID, search = '') {
+    if (getDBStatus().isConnected) {
+      try {
+        const q = { shopId };
+        if (search) {
+          q.$or = [
+            { name: { $regex: search, $options: 'i' } },
+            { phone: { $regex: search, $options: 'i' } }
+          ];
+        }
+        const list = await Supplier.find(q).sort({ lastTransactionDate: -1, name: 1 }).lean();
+        if (list && list.length > 0) return list;
+      } catch (e) {
+        console.warn('Mongo getSuppliers fallback:', e.message);
+      }
+    }
+
     let list = this.data.suppliers;
     if (search) {
       const s = search.toLowerCase();
@@ -540,7 +611,7 @@ class KiranaStore {
 
   async createSupplier(shopId = DEFAULT_SHOP_ID, data) {
     const newSupp = {
-      _id: 'supp_' + Date.now(),
+      _id: 'supp_' + Date.now() + '_' + Math.random().toString(36).substring(7),
       shopId,
       name: data.name,
       phone: data.phone || '',
@@ -550,6 +621,15 @@ class KiranaStore {
       lastTransactionDate: new Date().toISOString(),
       createdAt: new Date().toISOString()
     };
+
+    if (getDBStatus().isConnected) {
+      try {
+        await Supplier.create(newSupp);
+      } catch (e) {
+        console.warn('Mongo createSupplier fallback:', e.message);
+      }
+    }
+
     this.data.suppliers.unshift(newSupp);
     this.persist();
     return newSupp;
@@ -561,14 +641,27 @@ class KiranaStore {
 
     // Check duplicate submission
     if (idempotencyKey) {
+      if (getDBStatus().isConnected) {
+        try {
+          const exist = await Sale.findOne({ idempotencyKey }).lean();
+          if (exist) return exist;
+        } catch (e) {}
+      }
       const existing = this.data.sales.find(s => s.idempotencyKey === idempotencyKey);
       if (existing) {
         return existing;
       }
     }
 
-    const saleNumber = 'KK-' + (1000 + this.data.sales.length + 1);
-    const saleId = 'sale_' + Date.now();
+    let currentSaleCount = this.data.sales.length;
+    if (getDBStatus().isConnected) {
+      try {
+        currentSaleCount = await Sale.countDocuments({ shopId });
+      } catch (e) {}
+    }
+
+    const saleNumber = 'KK-' + (1000 + currentSaleCount + 1);
+    const saleId = 'sale_' + Date.now() + '_' + Math.random().toString(36).substring(7);
     const date = new Date().toISOString();
 
     const newSale = {
@@ -596,57 +689,101 @@ class KiranaStore {
       isReturned: false
     };
 
-    // Deduct stock for inventory items
+    // 1. Deduct stock for inventory items in Mongo and local memory
     for (const it of newSale.items) {
       if (it.productId) {
+        let before = 0;
+        let after = 0;
+        let prodName = it.name;
+
+        if (getDBStatus().isConnected) {
+          try {
+            const p = await Product.findById(it.productId);
+            if (p) {
+              before = p.stockQty;
+              after = before - it.quantity;
+              p.stockQty = after;
+              await p.save();
+              prodName = p.name;
+            }
+          } catch (e) {}
+        }
+
         const prod = this.data.products.find(p => p._id === it.productId);
         if (prod) {
-          const before = prod.stockQty;
-          prod.stockQty -= it.quantity;
-          this.data.stockMovements.unshift({
-            _id: 'sm_' + Date.now() + '_' + Math.random().toString(36).substring(7),
-            shopId,
-            productId: prod._id,
-            productName: prod.name,
-            type: 'SALE',
-            delta: -it.quantity,
-            beforeQty: before,
-            afterQty: prod.stockQty,
-            reason: `बिक्री रसिद ${saleNumber}`,
-            referenceId: saleId,
-            date
-          });
+          if (!before) {
+            before = prod.stockQty;
+            after = before - it.quantity;
+          }
+          prod.stockQty = after;
         }
+
+        const sm = {
+          _id: 'sm_' + Date.now() + '_' + Math.random().toString(36).substring(7),
+          shopId,
+          productId: it.productId,
+          productName: prodName,
+          type: 'SALE',
+          delta: -it.quantity,
+          beforeQty: before,
+          afterQty: after,
+          reason: `बिक्री रसिद ${saleNumber}`,
+          referenceId: saleId,
+          date
+        };
+
+        if (getDBStatus().isConnected) {
+          try {
+            await StockMovement.create(sm);
+          } catch (e) {}
+        }
+        this.data.stockMovements.unshift(sm);
       }
     }
 
-    // If Credit Sale: record into Customer Udharo ledger
-    if (paymentType === 'credit' && customerId) {
-      let cust = this.data.customers.find(c => c._id === customerId);
+    // 2. If Credit Sale: record into Customer Udharo ledger in Mongo and local memory
+    if (paymentType === 'credit') {
+      let cust = null;
+      if (getDBStatus().isConnected && customerId) {
+        try {
+          cust = await Customer.findById(customerId);
+        } catch (e) {}
+      }
+
+      if (!cust && customerId) {
+        cust = this.data.customers.find(c => c._id === customerId);
+      }
+
       if (!cust && customerName) {
-        // Auto create customer
-        cust = {
-          _id: 'cust_' + Date.now(),
-          shopId,
+        cust = await this.createCustomer(shopId, {
           name: customerName,
           phone: customerPhone || '',
-          address: '',
           totalUdharo: 0,
-          notes: 'बिक्रीको क्रममा सिर्जना गरिएको',
-          lastTransactionDate: date,
-          createdAt: date
-        };
-        this.data.customers.push(cust);
+          notes: 'बिक्रीको क्रममा सिर्जना गरिएको'
+        });
       }
 
       if (cust) {
-        const beforeBalance = cust.totalUdharo;
+        const beforeBalance = cust.totalUdharo || 0;
         const newBalance = beforeBalance + Number(grandTotal);
-        cust.totalUdharo = newBalance;
-        cust.lastTransactionDate = date;
+
+        if (getDBStatus().isConnected && cust._id) {
+          try {
+            await Customer.findByIdAndUpdate(cust._id, {
+              totalUdharo: newBalance,
+              lastTransactionDate: date
+            });
+          } catch (e) {}
+        }
+
+        const localCust = this.data.customers.find(c => c._id === cust._id);
+        if (localCust) {
+          localCust.totalUdharo = newBalance;
+          localCust.lastTransactionDate = date;
+        }
 
         const ledger = {
-          _id: 'led_' + Date.now(),
+          _id: 'led_' + Date.now() + '_' + Math.random().toString(36).substring(7),
           shopId,
           partyType: 'Customer',
           partyId: cust._id,
@@ -659,7 +796,22 @@ class KiranaStore {
           notes: `उधारो सामान बिक्री (रसिद नं. ${saleNumber})`,
           date
         };
+
+        if (getDBStatus().isConnected) {
+          try {
+            await LedgerEntry.create(ledger);
+          } catch (e) {}
+        }
         this.data.ledgerEntries.unshift(ledger);
+      }
+    }
+
+    // 3. Save Sale to MongoDB
+    if (getDBStatus().isConnected) {
+      try {
+        await Sale.create(newSale);
+      } catch (e) {
+        console.warn('Mongo createSale fallback:', e.message);
       }
     }
 
@@ -669,6 +821,14 @@ class KiranaStore {
   }
 
   async getSales(shopId = DEFAULT_SHOP_ID, limit = 50) {
+    if (getDBStatus().isConnected) {
+      try {
+        const list = await Sale.find({ shopId }).sort({ date: -1 }).limit(limit).lean();
+        if (list && list.length > 0) return list;
+      } catch (e) {
+        console.warn('Mongo getSales fallback:', e.message);
+      }
+    }
     return this.data.sales.slice(0, limit);
   }
 
@@ -682,37 +842,81 @@ class KiranaStore {
     let newBalance = 0;
 
     if (partyType === 'Customer') {
-      const cust = this.data.customers.find(c => c._id === partyId);
+      let cust = null;
+      if (getDBStatus().isConnected) {
+        try {
+          cust = await Customer.findById(partyId);
+        } catch (e) {}
+      }
+      if (!cust) {
+        cust = this.data.customers.find(c => c._id === partyId);
+      }
       if (!cust) throw new Error('ग्राहक फेला परेन (Customer not found)');
       partyName = cust.name;
 
+      const currentBal = cust.totalUdharo || 0;
       if (entryType === 'SALE_CREDIT') {
-        // Customer takes more goods on credit
-        cust.totalUdharo += numAmount;
+        newBalance = currentBal + numAmount;
       } else if (entryType === 'PAYMENT_RECEIVED') {
-        // Customer paid back cash
-        cust.totalUdharo -= numAmount;
+        newBalance = currentBal - numAmount;
+      } else {
+        newBalance = currentBal;
       }
-      cust.lastTransactionDate = date;
-      newBalance = cust.totalUdharo;
+
+      if (getDBStatus().isConnected) {
+        try {
+          await Customer.findByIdAndUpdate(partyId, {
+            totalUdharo: newBalance,
+            lastTransactionDate: date
+          });
+        } catch (e) {}
+      }
+
+      const localCust = this.data.customers.find(c => c._id === partyId);
+      if (localCust) {
+        localCust.totalUdharo = newBalance;
+        localCust.lastTransactionDate = date;
+      }
     } else {
-      const supp = this.data.suppliers.find(s => s._id === partyId);
+      let supp = null;
+      if (getDBStatus().isConnected) {
+        try {
+          supp = await Supplier.findById(partyId);
+        } catch (e) {}
+      }
+      if (!supp) {
+        supp = this.data.suppliers.find(s => s._id === partyId);
+      }
       if (!supp) throw new Error('साहू/सप्लायर फेला परेन (Supplier not found)');
       partyName = supp.name;
 
+      const currentBal = supp.totalPayable || 0;
       if (entryType === 'PURCHASE_CREDIT') {
-        // We bought stock from supplier on credit
-        supp.totalPayable += numAmount;
+        newBalance = currentBal + numAmount;
       } else if (entryType === 'PAYMENT_MADE') {
-        // We paid cash to supplier
-        supp.totalPayable -= numAmount;
+        newBalance = currentBal - numAmount;
+      } else {
+        newBalance = currentBal;
       }
-      supp.lastTransactionDate = date;
-      newBalance = supp.totalPayable;
+
+      if (getDBStatus().isConnected) {
+        try {
+          await Supplier.findByIdAndUpdate(partyId, {
+            totalPayable: newBalance,
+            lastTransactionDate: date
+          });
+        } catch (e) {}
+      }
+
+      const localSupp = this.data.suppliers.find(s => s._id === partyId);
+      if (localSupp) {
+        localSupp.totalPayable = newBalance;
+        localSupp.lastTransactionDate = date;
+      }
     }
 
     const ledger = {
-      _id: 'led_' + Date.now(),
+      _id: 'led_' + Date.now() + '_' + Math.random().toString(36).substring(7),
       shopId,
       partyType,
       partyId,
@@ -726,12 +930,24 @@ class KiranaStore {
       date
     };
 
+    if (getDBStatus().isConnected) {
+      try {
+        await LedgerEntry.create(ledger);
+      } catch (e) {}
+    }
+
     this.data.ledgerEntries.unshift(ledger);
     this.persist();
     return ledger;
   }
 
   async getPartyLedger(shopId = DEFAULT_SHOP_ID, partyType, partyId) {
+    if (getDBStatus().isConnected) {
+      try {
+        const list = await LedgerEntry.find({ shopId, partyType, partyId }).sort({ date: -1 }).lean();
+        if (list && list.length > 0) return list;
+      } catch (e) {}
+    }
     return this.data.ledgerEntries.filter(l => l.partyType === partyType && l.partyId === partyId);
   }
 
@@ -743,7 +959,6 @@ class KiranaStore {
     if (period === 'today') {
       startDate.setHours(0, 0, 0, 0);
     } else if (period === 'week') {
-      // Current week starting Sunday
       const day = now.getDay();
       startDate.setDate(now.getDate() - day);
       startDate.setHours(0, 0, 0, 0);
@@ -755,28 +970,56 @@ class KiranaStore {
       startDate.setHours(0, 0, 0, 0);
     }
 
-    const startISO = startDate.toISOString();
+    let allSales = [];
+    let allLedger = [];
+    let allCustomers = [];
+    let allSuppliers = [];
 
-    const filteredSales = this.data.sales.filter(s => s.date >= startISO);
-    const totalSales = filteredSales.reduce((sum, s) => sum + s.grandTotal, 0);
-    const cashSales = filteredSales.filter(s => s.paymentType === 'cash').reduce((sum, s) => sum + s.grandTotal, 0);
-    const creditSales = filteredSales.filter(s => s.paymentType === 'credit').reduce((sum, s) => sum + s.grandTotal, 0);
-    const transactionCount = filteredSales.length;
+    if (getDBStatus().isConnected) {
+      try {
+        const [sales, ledgers, custs, supps] = await Promise.all([
+          Sale.find({ shopId, date: { $gte: startDate } }).sort({ date: -1 }).lean(),
+          LedgerEntry.find({ shopId, date: { $gte: startDate } }).lean(),
+          Customer.find({ shopId }).lean(),
+          Supplier.find({ shopId }).lean()
+        ]);
+        allSales = sales || [];
+        allLedger = ledgers || [];
+        allCustomers = custs || [];
+        allSuppliers = supps || [];
+      } catch (e) {
+        console.warn('Mongo getTotals fallback:', e.message);
+      }
+    }
+
+    // Fallback to local memory if mongo returned empty or failed
+    if (allSales.length === 0 && this.data.sales.length > 0) {
+      const startISO = startDate.toISOString();
+      allSales = this.data.sales.filter(s => s.date >= startISO);
+      allLedger = this.data.ledgerEntries.filter(l => l.date >= startISO);
+      allCustomers = this.data.customers;
+      allSuppliers = this.data.suppliers;
+    }
+
+    const totalSales = allSales.reduce((sum, s) => sum + (s.grandTotal || 0), 0);
+    const cashSales = allSales.filter(s => s.paymentType === 'cash').reduce((sum, s) => sum + (s.grandTotal || 0), 0);
+    const creditSales = allSales.filter(s => s.paymentType === 'credit').reduce((sum, s) => sum + (s.grandTotal || 0), 0);
+    const transactionCount = allSales.length;
 
     // Collections of old credit: payments received in this period (separate from revenue!)
-    const oldCreditCollections = this.data.ledgerEntries
-      .filter(l => l.entryType === 'PAYMENT_RECEIVED' && l.date >= startISO)
-      .reduce((sum, l) => sum + l.amount, 0);
+    const oldCreditCollections = allLedger
+      .filter(l => l.entryType === 'PAYMENT_RECEIVED')
+      .reduce((sum, l) => sum + (l.amount || 0), 0);
 
     // Payments made to suppliers in this period
-    const paymentsMadeToSuppliers = this.data.ledgerEntries
-      .filter(l => l.entryType === 'PAYMENT_MADE' && l.date >= startISO)
-      .reduce((sum, l) => sum + l.amount, 0);
+    const paymentsMadeToSuppliers = allLedger
+      .filter(l => l.entryType === 'PAYMENT_MADE')
+      .reduce((sum, l) => sum + (l.amount || 0), 0);
 
     // Total outstanding customer udharo across entire shop
-    const totalCustomerUdharo = this.data.customers.reduce((sum, c) => sum + (c.totalUdharo || 0), 0);
+    const totalCustomerUdharo = allCustomers.reduce((sum, c) => sum + (c.totalUdharo || 0), 0);
     // Total shop payable to suppliers
-    const totalSupplierPayable = this.data.suppliers.reduce((sum, s) => sum + (s.totalPayable || 0), 0);
+    const totalSupplierPayable = allSuppliers.reduce((sum, s) => sum + (s.totalPayable || 0), 0);
 
     return {
       period,
@@ -784,12 +1027,12 @@ class KiranaStore {
       transactionCount,
       cashSales,
       creditSales,
-      oldCreditCollections, // Kept separate so credit sales are NOT double-counted
+      oldCreditCollections,
       totalCashInDrawer: cashSales + oldCreditCollections - paymentsMadeToSuppliers,
       paymentsMadeToSuppliers,
-      totalCustomerUdharo, // उठाउन बाँकी
-      totalSupplierPayable, // तिर्न बाँकी
-      transactions: filteredSales
+      totalCustomerUdharo,
+      totalSupplierPayable,
+      transactions: allSales
     };
   }
 

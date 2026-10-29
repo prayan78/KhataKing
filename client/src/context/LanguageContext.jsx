@@ -54,6 +54,10 @@ const translations = {
     removeItem: 'हटाउने',
     stockCount: 'स्टक:',
     saving: 'सुरक्षित गर्दैछ...',
+    todaySalesTitle: 'आजका बिक्रीहरू (हालसालैका रसिदहरू)',
+    todaySalesSub: 'आज भएका सम्पूर्ण नगद तथा उधारो कारोबार',
+    noSalesToday: 'आज अहिलेसम्म कुनै बिक्री रेकर्ड भएको छैन',
+    viewReceiptBtn: 'रसिद',
 
     // Udharo View
     customersOweUs: 'हामीले उठाउनुपर्ने',
@@ -275,6 +279,10 @@ const translations = {
     removeItem: 'Remove',
     stockCount: 'Stock:',
     saving: 'Saving...',
+    todaySalesTitle: "Today's Completed Sales (Recent Receipts)",
+    todaySalesSub: 'All cash and credit transactions recorded today',
+    noSalesToday: 'No sales recorded yet today',
+    viewReceiptBtn: 'Receipt',
 
     // Udharo View
     customersOweUs: 'Customers Owe Us',
