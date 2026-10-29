@@ -5,7 +5,7 @@
  */
 
 import fs from 'fs';
-import { identifyProductImage, performImageToTextOcr } from './aiVisionService.js';
+import { identifyProductImage, performImageToTextOcr, cleanOcrTextLine } from './aiVisionService.js';
 
 // Nepali Devanagari to Arabic numeral mapping
 const DEVANAGARI_DIGITS = {
@@ -56,13 +56,16 @@ export const parsePaperLedgerLines = (rawText = '') => {
       category = 'SUPPLIER_PAYABLE';
     }
 
-    // Clean party name
-    let partyName = line
+    // Clean party name and notes with cleanOcrTextLine
+    let rawParty = line
       .replace(phone, '')
       .replace(/[0-9०-९,]+(?:\.[0-9०-९]+)?/g, '')
       .replace(/(?:रु\.?|rs\.?|रू|mrp|price|amount|due|baki|बाँकी|उधारो|तिरेको|बुझाएको|नगद)/gi, '')
       .replace(/[-–—:=+()_]/g, ' ')
       .trim();
+
+    let partyName = cleanOcrTextLine(rawParty) || cleanOcrTextLine(line.substring(0, 24));
+    let cleanNotes = cleanOcrTextLine(line);
 
     // Check confidence
     const isUncertain = !partyName || partyName.length < 3 || amount <= 0;
@@ -70,8 +73,8 @@ export const parsePaperLedgerLines = (rawText = '') => {
 
     records.push({
       id: 'rec_' + Date.now() + '_' + Math.random().toString(36).substring(7),
-      rawText: line,
-      partyName: partyName || line.substring(0, 24),
+      rawText: cleanNotes,
+      partyName: partyName,
       phone,
       productName: '',
       quantity: 1,
@@ -80,7 +83,7 @@ export const parsePaperLedgerLines = (rawText = '') => {
       category,
       confidence,
       status: isUncertain ? 'PENDING' : 'APPROVED',
-      notes: line
+      notes: cleanNotes
     });
   }
 
@@ -90,12 +93,15 @@ export const parsePaperLedgerLines = (rawText = '') => {
 /**
  * 1. Process Paper Registers & Ledger Notebooks (REAL Image-to-Text OCR)
  */
-export const processKiranaDocument = async (filePath, originalFilename) => {
+export const processKiranaDocument = async (fileInput, originalFilename) => {
   let rawText = '';
-  if (filePath && fs.existsSync(filePath)) {
-    console.log(`[OCR_PAPER] Running Tesseract OCR on paper register: ${filePath}`);
-    rawText = await performImageToTextOcr(filePath);
-  } else if (filePath === 'dummy.jpg') {
+  if (Buffer.isBuffer(fileInput)) {
+    console.log(`[OCR_PAPER] Running Tesseract OCR on memory buffer (${fileInput.length} bytes)`);
+    rawText = await performImageToTextOcr(fileInput);
+  } else if (fileInput && typeof fileInput === 'string' && fs.existsSync(fileInput)) {
+    console.log(`[OCR_PAPER] Running Tesseract OCR on paper register: ${fileInput}`);
+    rawText = await performImageToTextOcr(fileInput);
+  } else if (fileInput === 'dummy.jpg') {
     // Deterministic test compatibility for automated test runner
     rawText = "राम कुमार रु. १५०० बाकी\nसीता बुझाएको रु. ५००\nअक्षर यकिन नभएको ... ?";
   }
@@ -116,9 +122,13 @@ export const processKiranaDocument = async (filePath, originalFilename) => {
 /**
  * 2. Process Single Product Photo (AI Vision & Packaging Inspection)
  */
-export const processProductPhoto = async (filePath, originalFilename, mimeType = 'image/jpeg', requestId = '') => {
+export const processProductPhoto = async (fileInput, originalFilename, mimeType = 'image/jpeg', requestId = '') => {
+  const imageBuffer = Buffer.isBuffer(fileInput) ? fileInput : null;
+  const filePath = typeof fileInput === 'string' ? fileInput : '';
+
   const aiResult = await identifyProductImage({
     filePath,
+    imageBuffer,
     originalFilename,
     mimeType,
     requestId: requestId || ('req_scan_' + Date.now())

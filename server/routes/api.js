@@ -14,19 +14,8 @@ const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Ensure upload directory exists
-const uploadDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `scan_${Date.now()}_${Math.random().toString(36).substring(7)}${ext}`);
-  }
-});
+// Use in-memory buffer storage: Never write images to disk or project folder!
+const storage = multer.memoryStorage();
 
 const upload = multer({
   storage,
@@ -63,10 +52,12 @@ router.put('/shop', async (req, res) => {
 
 router.post('/upload-image', upload.single('image'), (req, res) => {
   try {
-    if (!req.file) {
+    if (!req.file || !req.file.buffer) {
       return res.status(400).json({ success: false, error: 'कृपया तस्बिर छान्नुहोस्' });
     }
-    const imageUrl = `/uploads/${req.file.filename}`;
+    const mime = req.file.mimetype || 'image/jpeg';
+    const base64 = req.file.buffer.toString('base64');
+    const imageUrl = `data:${mime};base64,${base64}`;
     res.json({ success: true, imageUrl });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -267,20 +258,15 @@ router.get('/stock/movements', async (req, res) => {
   }
 });
 
-// 9. OCR Scan Paper (कागज स्क्यान)
+// 9. OCR Scan Paper (कागज स्क्यान - Memory buffer only)
 router.post('/ocr/scan', upload.single('image'), async (req, res) => {
   try {
-    let filePath = '';
-    let filename = 'camera_capture.jpg';
-    let fileUrl = '/uploads/sample_receipt.jpg';
+    const filename = req.file ? req.file.originalname : 'camera_capture.jpg';
+    const buffer = req.file ? req.file.buffer : null;
+    const mime = req.file ? req.file.mimetype : 'image/jpeg';
+    const fileUrl = buffer ? `data:${mime};base64,${buffer.toString('base64')}` : '';
 
-    if (req.file) {
-      filePath = req.file.path;
-      filename = req.file.originalname;
-      fileUrl = `/uploads/${req.file.filename}`;
-    }
-
-    const ocrResult = await processKiranaDocument(filePath, filename);
+    const ocrResult = await processKiranaDocument(buffer, filename);
 
     // Save batch for review
     const batch = await store.saveScanBatch({
@@ -293,25 +279,26 @@ router.post('/ocr/scan', upload.single('image'), async (req, res) => {
       success: true,
       batchId: batch._id,
       imageUrl: fileUrl,
-      records: ocrResult.records
+      records: ocrResult.records,
+      rawText: ocrResult.rawText
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// 10. Single Product Photo Scan
+// 10. Single Product Photo Scan (Memory buffer only, no disk writing)
 router.post('/ocr/product-photo', upload.single('image'), async (req, res) => {
   try {
     const requestId = req.headers['x-request-id'] || req.body?.requestId || ('req_' + Date.now());
-    let filePath = req.file ? req.file.path : '';
-    let filename = req.file ? req.file.originalname : 'product.jpg';
-    let mimeType = req.file ? req.file.mimetype : 'image/jpeg';
-    let fileUrl = req.file ? `/uploads/${req.file.filename}` : '/uploads/sample_product.jpg';
+    const filename = req.file ? req.file.originalname : 'product.jpg';
+    const mimeType = req.file ? req.file.mimetype : 'image/jpeg';
+    const buffer = req.file ? req.file.buffer : null;
+    const fileUrl = buffer ? `data:${mimeType};base64,${buffer.toString('base64')}` : '';
 
-    console.log(`[SCAN_PRODUCT_REQUEST] ID: ${requestId} | File: ${filename} | Size: ${req.file?.size || 0} bytes`);
+    console.log(`[SCAN_PRODUCT_REQUEST] ID: ${requestId} | File: ${filename} | Size: ${req.file?.size || 0} bytes (in-memory)`);
 
-    const result = await processProductPhoto(filePath, filename, mimeType, requestId);
+    const result = await processProductPhoto(buffer, filename, mimeType, requestId);
 
     console.log(`[SCAN_PRODUCT_RESPONSE] ID: ${requestId} | Identified: "${result.product.productName || '(Unrecognized)'}" | Category: "${result.product.category}" | Conf: ${result.product.confidence}`);
 

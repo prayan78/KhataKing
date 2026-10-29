@@ -101,41 +101,56 @@ export const processProductToWhiteBackground = (fileOrUrl) => {
         // Put modified data back
         ctx.putImageData(imgData, 0, 0);
 
-        // Create a polished final square studio canvas with pure white background
-        const finalSize = 500;
-        const outCanvas = document.createElement('canvas');
-        outCanvas.width = finalSize;
-        outCanvas.height = finalSize;
-        const outCtx = outCanvas.getContext('2d');
-
-        // Fill background pure white #FFFFFF
-        outCtx.fillStyle = '#FFFFFF';
-        outCtx.fillRect(0, 0, finalSize, finalSize);
-
-        // Calculate aspect-fit framing with 12% padding
-        const pad = 35;
-        const targetW = finalSize - pad * 2;
-        const targetH = finalSize - pad * 2;
-
+        // 1. Tight bounding box around detected product to remove excess white margins
         let srcX = 0, srcY = 0, srcW = width, srcH = height;
         if (maxX > minX && maxY > minY) {
-          // Add small margin around detected product
-          const m = 15;
-          srcX = Math.max(0, minX - m);
-          srcY = Math.max(0, minY - m);
-          srcW = Math.min(width - srcX, (maxX - minX) + m * 2);
-          srcH = Math.min(height - srcY, (maxY - minY) + m * 2);
+          srcX = minX;
+          srcY = minY;
+          srcW = Math.max(10, maxX - minX);
+          srcH = Math.max(10, maxY - minY);
         }
 
-        const scale = Math.min(targetW / srcW, targetH / srcH);
-        const drawW = srcW * scale;
-        const drawH = srcH * scale;
-        const drawX = (finalSize - drawW) / 2;
-        const drawY = (finalSize - drawH) / 2;
+        // 2. Product occupies ALL horizontal space (zero side margins, full width)
+        const targetW = 320;
+        const targetH = Math.max(120, Math.min(320, Math.round(targetW * (srcH / srcW))));
 
-        outCtx.drawImage(canvas, srcX, srcY, srcW, srcH, drawX, drawY, drawW, drawH);
+        const outCanvas = document.createElement('canvas');
+        outCanvas.width = targetW;
+        outCanvas.height = targetH;
+        const outCtx = outCanvas.getContext('2d');
 
-        const whiteBgDataUrl = outCanvas.toDataURL('image/jpeg', 0.92);
+        // Clean white background
+        outCtx.fillStyle = '#FFFFFF';
+        outCtx.fillRect(0, 0, targetW, targetH);
+
+        // Draw cropped product occupying 100% of horizontal space (drawX = 0, drawW = targetW)
+        outCtx.drawImage(canvas, srcX, srcY, srcW, srcH, 0, 0, targetW, targetH);
+
+        // 3. Compress to MAXIMUM of 15 KB (15,360 bytes => ~20,000 base64 chars)
+        let quality = 0.80;
+        let whiteBgDataUrl = outCanvas.toDataURL('image/jpeg', quality);
+
+        // Reduce quality if needed to strictly stay under 15 KB
+        while (whiteBgDataUrl.length > 20000 && quality > 0.25) {
+          quality -= 0.08;
+          whiteBgDataUrl = outCanvas.toDataURL('image/jpeg', quality);
+        }
+
+        // Iteratively downscale canvas dimensions if still over 15 KB
+        while (whiteBgDataUrl.length > 20000 && outCanvas.width > 160) {
+          const downCanvas = document.createElement('canvas');
+          downCanvas.width = Math.round(outCanvas.width * 0.85);
+          downCanvas.height = Math.round(outCanvas.height * 0.85);
+          const dCtx = downCanvas.getContext('2d');
+          dCtx.fillStyle = '#FFFFFF';
+          dCtx.fillRect(0, 0, downCanvas.width, downCanvas.height);
+          dCtx.drawImage(outCanvas, 0, 0, downCanvas.width, downCanvas.height);
+          whiteBgDataUrl = downCanvas.toDataURL('image/jpeg', 0.65);
+          outCanvas.width = downCanvas.width;
+          outCanvas.height = downCanvas.height;
+          outCtx.drawImage(downCanvas, 0, 0);
+        }
+
         resolve(whiteBgDataUrl);
       } catch (err) {
         console.warn('Background removal canvas error, falling back:', err);
