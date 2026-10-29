@@ -163,10 +163,10 @@ npm start
 Or for development:
 ```bash
 # Run server in dev mode
-npm run server:dev
+npm run backend
 
 # Run frontend with Vite dev server (in another terminal)
-npm run client
+npm run frontend
 ```
 
 Open your browser at **`http://localhost:5173`** (Vite Dev) or **`http://localhost:5000`** (Express).

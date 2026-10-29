@@ -63,7 +63,7 @@ app.get('*', (req, res) => {
   if (fs.existsSync(indexPath)) {
     res.sendFile(indexPath);
   } else {
-    res.send('KhataKing API Server is running. Please build client or run npm run client.');
+    res.send('KhataKing API Server is running. Please build the frontend or run npm run frontend.');
   }
 });
 

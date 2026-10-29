@@ -6,7 +6,9 @@
   "scripts": {
     "start": "cd server && npm start",
     "server": "cd server && npm start",
+    "backend": "cd server && npm run dev",
     "server:dev": "cd server && npm run dev",
+    "frontend": "cd client && npm run dev",
     "client": "cd client && npm run dev",
     "build": "cd client && npm run build",
     "android:sync": "cd client && npm run build && npx cap sync android",
