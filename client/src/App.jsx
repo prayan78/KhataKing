@@ -11,60 +11,55 @@ import StockView from './views/StockView';
 import ScanView from './views/ScanView';
 import MoreView from './views/MoreView';
 
+import { 
+  apiFetch, 
+  getInitialShop, 
+  getInitialProducts, 
+  getInitialCustomers, 
+  getInitialSuppliers,
+  setLocalStore 
+} from './utils/api';
+
 function MainApp() {
   const [activeTab, setActiveTab] = useState('sales'); // 'sales' | 'udharo' | 'totals' | 'stock' | 'scan' | 'more'
-  const [shop, setShop] = useState(null);
-  const [products, setProducts] = useState([]);
-  const [customers, setCustomers] = useState([]);
-  const [suppliers, setSuppliers] = useState([]);
+  const [shop, setShop] = useState(getInitialShop);
+  const [products, setProducts] = useState(getInitialProducts);
+  const [customers, setCustomers] = useState(getInitialCustomers);
+  const [suppliers, setSuppliers] = useState(getInitialSuppliers);
   const [currentReceipt, setCurrentReceipt] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
-  // Fetch all initial data with localStorage fallback
+  // Fetch all initial data with robust fallback
   const loadData = async () => {
     try {
-      const [shopRes, prodRes, custRes, suppRes] = await Promise.all([
-        fetch('/api/shop').then(r => r.json()).catch(() => ({ success: false })),
-        fetch('/api/products').then(r => r.json()).catch(() => ({ success: false })),
-        fetch('/api/customers').then(r => r.json()).catch(() => ({ success: false })),
-        fetch('/api/suppliers').then(r => r.json()).catch(() => ({ success: false }))
+      const [shopRes, prodRes, custRes, suppRes] = await Promise.allSettled([
+        apiFetch('/api/shop'),
+        apiFetch('/api/products'),
+        apiFetch('/api/customers'),
+        apiFetch('/api/suppliers')
       ]);
 
-      if (shopRes.success) {
-        setShop(shopRes.shop);
-        localStorage.setItem('kk_cached_shop', JSON.stringify(shopRes.shop));
-      } else {
-        const cached = localStorage.getItem('kk_cached_shop');
-        if (cached) setShop(JSON.parse(cached));
+      if (shopRes.status === 'fulfilled' && shopRes.value?.success && shopRes.value?.shop) {
+        setShop(shopRes.value.shop);
+        setLocalStore('kk_cached_shop', shopRes.value.shop);
       }
 
-      if (prodRes.success && prodRes.products?.length) {
-        setProducts(prodRes.products);
-        localStorage.setItem('kk_cached_prods', JSON.stringify(prodRes.products));
-      } else {
-        const cached = localStorage.getItem('kk_cached_prods');
-        if (cached) setProducts(JSON.parse(cached));
+      if (prodRes.status === 'fulfilled' && prodRes.value?.success && prodRes.value?.products?.length) {
+        setProducts(prodRes.value.products);
+        setLocalStore('kk_cached_prods', prodRes.value.products);
       }
 
-      if (custRes.success && custRes.customers?.length) {
-        setCustomers(custRes.customers);
-        localStorage.setItem('kk_cached_custs', JSON.stringify(custRes.customers));
-      } else {
-        const cached = localStorage.getItem('kk_cached_custs');
-        if (cached) setCustomers(JSON.parse(cached));
+      if (custRes.status === 'fulfilled' && custRes.value?.success && custRes.value?.customers?.length) {
+        setCustomers(custRes.value.customers);
+        setLocalStore('kk_cached_custs', custRes.value.customers);
       }
 
-      if (suppRes.success && suppRes.suppliers?.length) {
-        setSuppliers(suppRes.suppliers);
-        localStorage.setItem('kk_cached_supps', JSON.stringify(suppRes.suppliers));
-      } else {
-        const cached = localStorage.getItem('kk_cached_supps');
-        if (cached) setSuppliers(JSON.parse(cached));
+      if (suppRes.status === 'fulfilled' && suppRes.value?.success && suppRes.value?.suppliers?.length) {
+        setSuppliers(suppRes.value.suppliers);
+        setLocalStore('kk_cached_supps', suppRes.value.suppliers);
       }
     } catch (e) {
-      console.error('Failed to load store data:', e);
-    } finally {
-      setLoading(false);
+      console.warn('API sync warning, using local cached data:', e);
     }
   };
 

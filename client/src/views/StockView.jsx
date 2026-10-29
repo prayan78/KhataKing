@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { processProductToWhiteBackground } from '../utils/imageUtils';
+import { apiFetch, getInitialProducts, setLocalStore } from '../utils/api';
 import { 
   Package, 
   Plus, 
@@ -67,13 +68,13 @@ export default function StockView({ products, onRefreshProducts }) {
     setModalType('stock_history');
     setHistoryLoading(true);
     try {
-      const res = await fetch('/api/stock/movements');
-      const data = await res.json();
-      if (data.success) {
+      const data = await apiFetch('/api/stock/movements');
+      if (data && data.success) {
         setMovements(data.movements || []);
       }
     } catch (e) {
-      console.error(e);
+      console.warn('Could not load movements from server:', e);
+      setMovements([]);
     } finally {
       setHistoryLoading(false);
     }
@@ -108,25 +109,36 @@ export default function StockView({ products, onRefreshProducts }) {
     setIsSubmitting(true);
     setFormError('');
 
-    try {
-      const res = await fetch('/api/products', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: prodForm.name.trim(),
-          nameEn: prodForm.nameEn.trim(),
-          sellingPrice: parseFloat(prodForm.sellingPrice) || 0,
-          costPrice: parseFloat(prodForm.costPrice) || 0,
-          stockQty: parseFloat(prodForm.stockQty) || 0,
-          unit: prodForm.unit,
-          minStockAlert: parseFloat(prodForm.minStockAlert) || 5,
-          category: prodForm.category,
-          imageUrl: prodForm.imageUrl || ''
-        })
-      });
+    const payload = {
+      name: prodForm.name.trim(),
+      nameEn: prodForm.nameEn.trim(),
+      sellingPrice: parseFloat(prodForm.sellingPrice) || 0,
+      costPrice: parseFloat(prodForm.costPrice) || 0,
+      stockQty: parseFloat(prodForm.stockQty) || 0,
+      unit: prodForm.unit,
+      minStockAlert: parseFloat(prodForm.minStockAlert) || 5,
+      category: prodForm.category,
+      imageUrl: prodForm.imageUrl || ''
+    };
 
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'सामान थप्न सकिएन');
+    try {
+      try {
+        const data = await apiFetch('/api/products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (data && !data.success) throw new Error(data.error || 'सामान थप्न सकिएन');
+      } catch (netErr) {
+        // Fallback: save to local offline products
+        const cached = getInitialProducts();
+        const newP = {
+          _id: 'prod_' + Date.now(),
+          ...payload
+        };
+        cached.unshift(newP);
+        setLocalStore('kk_cached_prods', cached);
+      }
 
       onRefreshProducts();
       setModalType(null);
@@ -163,17 +175,25 @@ export default function StockView({ products, onRefreshProducts }) {
     setFormError('');
 
     try {
-      const res = await fetch(`/api/products/${selectedProduct._id}/adjust`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          delta,
-          reason: adjustForm.reason
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'स्टक अपडेट हुन सकेन');
+      try {
+        const data = await apiFetch(`/api/products/${selectedProduct._id}/adjust`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            delta,
+            reason: adjustForm.reason
+          })
+        });
+        if (data && !data.success) throw new Error(data.error || 'स्टक अपडेट हुन सकेन');
+      } catch (netErr) {
+        // Fallback: adjust local store
+        const cached = getInitialProducts();
+        const found = cached.find(p => p._id === selectedProduct._id);
+        if (found) {
+          found.stockQty = Math.max(0, (found.stockQty || 0) + delta);
+          setLocalStore('kk_cached_prods', cached);
+        }
+      }
 
       onRefreshProducts();
       setModalType(null);

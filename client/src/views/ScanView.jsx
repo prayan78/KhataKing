@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { processProductToWhiteBackground } from '../utils/imageUtils';
+import { getApiBaseUrl, apiFetch, getInitialProducts, setLocalStore } from '../utils/api';
 import { 
   Camera, 
   Upload, 
@@ -187,6 +188,8 @@ export default function ScanView({ onImportSuccess }) {
     setErrorMessage('');
     setSuccessMessage('');
 
+    const baseUrl = getApiBaseUrl();
+
     try {
       const formData = new FormData();
       formData.append('image', file);
@@ -194,9 +197,8 @@ export default function ScanView({ onImportSuccess }) {
       if (scanMode === 'paper') {
         let records = null;
         try {
-          const res = await fetch('/api/ocr/scan', { method: 'POST', body: formData });
+          const res = await fetch(`${baseUrl}/api/ocr/scan`, { method: 'POST', body: formData });
           const text = await res.text();
-          // Safe check: verify it's actual JSON and not an HTML error
           if (text.trim().startsWith('{')) {
             const data = JSON.parse(text);
             if (data.success && data.records) {
@@ -226,7 +228,7 @@ export default function ScanView({ onImportSuccess }) {
 
         let product = null;
         try {
-          const res = await fetch('/api/ocr/product-photo', { method: 'POST', body: formData });
+          const res = await fetch(`${baseUrl}/api/ocr/product-photo`, { method: 'POST', body: formData });
           const text = await res.text();
           if (text.trim().startsWith('{')) {
             const data = JSON.parse(text);
@@ -256,7 +258,7 @@ export default function ScanView({ onImportSuccess }) {
 
         let prods = null;
         try {
-          const res = await fetch('/api/ocr/rack-photo', { method: 'POST', body: formData });
+          const res = await fetch(`${baseUrl}/api/ocr/rack-photo`, { method: 'POST', body: formData });
           const text = await res.text();
           if (text.trim().startsWith('{')) {
             const data = JSON.parse(text);
@@ -323,16 +325,16 @@ export default function ScanView({ onImportSuccess }) {
     }
     setIsProcessing(true);
     try {
-      const res = await fetch('/api/ocr/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batchId, approvedRecords: approved })
-      });
-      const text = await res.text();
       let importedCount = approved.length;
-      if (text.trim().startsWith('{')) {
-        const data = JSON.parse(text);
-        if (data.importedCount) importedCount = data.importedCount;
+      try {
+        const data = await apiFetch('/api/ocr/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ batchId, approvedRecords: approved })
+        });
+        if (data && data.importedCount) importedCount = data.importedCount;
+      } catch (e) {
+        console.warn('Backend import fallback to local:', e);
       }
       setSuccessMessage(lang === 'en' ? `Successfully imported ${importedCount} records to ledger!` : `सफलतापूर्वक ${importedCount} वटा रेकर्ड खातामा चढाइयो!`);
       if (onImportSuccess) onImportSuccess();
@@ -348,21 +350,30 @@ export default function ScanView({ onImportSuccess }) {
   const handleSaveSingleProduct = async () => {
     if (!detectedProduct?.name) return;
     setIsProcessing(true);
+    const prodPayload = {
+      name: detectedProduct.name,
+      nameEn: detectedProduct.nameEn || '',
+      sellingPrice: Number(detectedProduct.sellingPrice) || 0,
+      costPrice: Number(detectedProduct.costPrice) || 0,
+      stockQty: Number(detectedProduct.stockQty) || 0,
+      unit: detectedProduct.unit || (lang === 'en' ? 'Pcs' : 'थान'),
+      category: detectedProduct.category || (lang === 'en' ? 'Kirana' : 'किराना'),
+      imageUrl: detectedProduct.imageUrl || ''
+    };
+
     try {
-      const res = await fetch('/api/products', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: detectedProduct.name,
-          nameEn: detectedProduct.nameEn || '',
-          sellingPrice: Number(detectedProduct.sellingPrice) || 0,
-          costPrice: Number(detectedProduct.costPrice) || 0,
-          stockQty: Number(detectedProduct.stockQty) || 0,
-          unit: detectedProduct.unit || (lang === 'en' ? 'Pcs' : 'थान'),
-          category: detectedProduct.category || (lang === 'en' ? 'Kirana' : 'किराना'),
-          imageUrl: detectedProduct.imageUrl || ''
-        })
-      });
+      try {
+        await apiFetch('/api/products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(prodPayload)
+        });
+      } catch (e) {
+        // Fallback local products
+        const prods = getInitialProducts();
+        prods.unshift({ _id: 'prod_' + Date.now(), ...prodPayload });
+        setLocalStore('kk_cached_prods', prods);
+      }
       setSuccessMessage(lang === 'en' ? `"${detectedProduct.name}" added to stock successfully!` : `"${detectedProduct.name}" स्टकमा सफलतापूर्वक थपियो!`);
       setDetectedProduct(null);
       setPreviewImage(null);
@@ -388,11 +399,28 @@ export default function ScanView({ onImportSuccess }) {
     if (rackProducts.length === 0) return;
     setIsProcessing(true);
     try {
-      await fetch('/api/products/batch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ products: rackProducts })
-      });
+      try {
+        await apiFetch('/api/products/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ products: rackProducts })
+        });
+      } catch (e) {
+        const prods = getInitialProducts();
+        for (const rp of rackProducts) {
+          prods.unshift({
+            _id: 'prod_' + Date.now() + '_' + Math.random().toString(36).substring(7),
+            name: rp.name,
+            sellingPrice: rp.sellingPrice,
+            costPrice: rp.costPrice || 0,
+            stockQty: rp.stockQty || 0,
+            unit: rp.unit || 'थान',
+            category: rp.category || 'किराना',
+            imageUrl: rp.imageUrl || ''
+          });
+        }
+        setLocalStore('kk_cached_prods', prods);
+      }
       setSuccessMessage(lang === 'en' ? `Registered ${rackProducts.length} items from rack to inventory!` : `र्याकबाट ${rackProducts.length} वटा सामान स्टकमा थपियो!`);
       setRackProducts([]);
       setPreviewImage(null);

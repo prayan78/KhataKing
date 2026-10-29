@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { useSettings } from '../context/SettingsContext';
 import KhataKingLogo from '../components/KhataKingLogo';
+import { apiFetch, getApiBaseUrl, setApiBaseUrl, testServerConnection, setLocalStore } from '../utils/api';
 import { 
   Store, 
   Volume2, 
@@ -16,7 +17,11 @@ import {
   CheckCircle,
   Type,
   Maximize2,
-  X
+  X,
+  Server,
+  Wifi,
+  WifiOff,
+  RefreshCw
 } from 'lucide-react';
 
 export default function MoreView({ shop, onUpdateShop }) {
@@ -31,6 +36,28 @@ export default function MoreView({ shop, onUpdateShop }) {
     address: shop?.address || '',
     panNumber: shop?.panNumber || ''
   });
+
+  // Server URL & Connection diagnostics for Android / LAN
+  const [serverUrl, setServerUrlState] = useState(getApiBaseUrl() || 'http://10.0.2.2:5000');
+  const [connectionStatus, setConnectionStatus] = useState(null);
+  const [checkingConnection, setCheckingConnection] = useState(false);
+
+  const checkConnection = async (targetUrl = serverUrl) => {
+    setCheckingConnection(true);
+    const res = await testServerConnection(targetUrl);
+    setConnectionStatus(res);
+    setCheckingConnection(false);
+  };
+
+  useEffect(() => {
+    checkConnection(getApiBaseUrl());
+  }, []);
+
+  const handleApplyServerUrl = (urlToSet) => {
+    setServerUrlState(urlToSet);
+    setApiBaseUrl(urlToSet);
+    checkConnection(urlToSet);
+  };
 
   // Voice narration helper in Nepali for elderly kirana shopkeepers
   const speakNepaliTutorial = (text) => {
@@ -60,16 +87,20 @@ export default function MoreView({ shop, onUpdateShop }) {
   const handleSaveShop = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/shop', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(shopForm)
-      });
-      const data = await res.json();
-      if (data.success) {
-        if (onUpdateShop) onUpdateShop(data.shop);
-        setShowShopModal(false);
+      try {
+        const data = await apiFetch('/api/shop', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(shopForm)
+        });
+        if (data && data.success && data.shop) {
+          if (onUpdateShop) onUpdateShop(data.shop);
+        }
+      } catch (netErr) {
+        setLocalStore('kk_cached_shop', shopForm);
+        if (onUpdateShop) onUpdateShop(shopForm);
       }
+      setShowShopModal(false);
     } catch (e) {
       console.error(e);
     }
@@ -246,6 +277,91 @@ export default function MoreView({ shop, onUpdateShop }) {
                 {opt.label}
               </button>
             ))}
+          </div>
+        </div>
+
+        {/* Server Connection (Android & Network Settings) */}
+        <div className="p-4 space-y-3 bg-slate-50/70">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-teal-50 text-teal-800 flex items-center justify-center">
+                <Server className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-base font-extrabold text-slate-900">सर्भर जडान (Server Connection)</h4>
+                <p className="text-xs text-slate-500 font-semibold">
+                  Android मोबाइल वा कम्प्युटर सर्भर ठेगाना
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              {connectionStatus?.connected ? (
+                <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 font-bold text-xs">
+                  <Wifi className="w-3.5 h-3.5" />
+                  जडान भयो (Online)
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 font-bold text-xs">
+                  <WifiOff className="w-3.5 h-3.5" />
+                  अफलाइन खाता (Offline)
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-2 pt-1">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={serverUrl}
+                onChange={(e) => setServerUrlState(e.target.value)}
+                placeholder="http://10.0.2.2:5000"
+                className="flex-1 bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#023c2e]"
+              />
+              <button
+                type="button"
+                onClick={() => handleApplyServerUrl(serverUrl)}
+                disabled={checkingConnection}
+                className="px-4 py-2 bg-[#023c2e] hover:bg-[#034b39] text-white font-bold text-sm rounded-xl transition-all flex items-center gap-1.5"
+              >
+                <RefreshCw className={`w-4 h-4 ${checkingConnection ? 'animate-spin' : ''}`} />
+                <span>जाँच्नुहोस्</span>
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-2 pt-1 text-xs font-semibold">
+              <span className="text-slate-400 py-1">सजिलो छनोट:</span>
+              <button
+                type="button"
+                onClick={() => handleApplyServerUrl('http://10.0.2.2:5000')}
+                className="px-2.5 py-1 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 active:scale-95"
+              >
+                Android Emulator (10.0.2.2:5000)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApplyServerUrl('http://localhost:5000')}
+                className="px-2.5 py-1 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 active:scale-95"
+              >
+                Localhost (PC: 5000)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApplyServerUrl('')}
+                className="px-2.5 py-1 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 active:scale-95"
+              >
+                Auto (Default)
+              </button>
+            </div>
+
+            {connectionStatus && (
+              <p className={`text-xs font-medium pt-1 ${connectionStatus.connected ? 'text-emerald-700' : 'text-amber-700'}`}>
+                {connectionStatus.connected 
+                  ? '✅ ब्याकएन्ड सर्भरसँग सफलतापूर्वक जडान भएको छ। (Connected)' 
+                  : 'ℹ️ सर्भरसँग जडान छैन — एप स्वचालित रूपमा पूर्ण सुरक्षित अफलाइन मोडमा चल्नेछ। (Offline Storage Active)'}
+              </p>
+            )}
           </div>
         </div>
 

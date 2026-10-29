@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
+import { apiFetch, getOfflineTotals } from '../utils/api';
 import { 
   BarChart3, 
   Calendar, 
@@ -21,13 +22,15 @@ export default function TotalsView({ onViewReceipt }) {
   const fetchTotals = async (selectedPeriod) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/totals?period=${selectedPeriod}`);
-      const result = await res.json();
-      if (result.success) {
+      const result = await apiFetch(`/api/totals?period=${selectedPeriod}`);
+      if (result && result.success && result.totals) {
         setData(result.totals);
+      } else {
+        setData(getOfflineTotals(selectedPeriod));
       }
     } catch (e) {
-      console.error(e);
+      console.warn('Backend fetch failed, using local offline totals:', e);
+      setData(getOfflineTotals(selectedPeriod));
     } finally {
       setLoading(false);
     }

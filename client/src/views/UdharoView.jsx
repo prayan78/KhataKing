@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useLanguage } from '../context/LanguageContext';
+import { apiFetch, getInitialCustomers, getInitialSuppliers, setLocalStore } from '../utils/api';
 import { 
   Users, 
   Truck, 
@@ -61,13 +62,13 @@ export default function UdharoView({ customers, suppliers, onRefreshData }) {
     setHistoryLoading(true);
     try {
       const type = activeTab === 'receivable' ? 'Customer' : 'Supplier';
-      const res = await fetch(`/api/udharo/ledger/${type}/${party._id}`);
-      const data = await res.json();
-      if (data.success) {
+      const data = await apiFetch(`/api/udharo/ledger/${type}/${party._id}`);
+      if (data && data.success) {
         setLedgerHistory(data.history || []);
       }
     } catch (e) {
-      console.error(e);
+      console.warn('Could not load ledger history:', e);
+      setLedgerHistory([]);
     } finally {
       setHistoryLoading(false);
     }
@@ -98,21 +99,35 @@ export default function UdharoView({ customers, suppliers, onRefreshData }) {
     setIsSubmitting(true);
     setFormError('');
 
+    const personPayload = {
+      name: formData.name.trim(),
+      phone: formData.phone.trim(),
+      address: formData.address.trim(),
+      totalUdharo: 0,
+      totalPayable: 0
+    };
+
     try {
       const endpoint = activeTab === 'receivable' ? '/api/customers' : '/api/suppliers';
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: formData.name.trim(),
-          phone: formData.phone.trim(),
-          address: formData.address.trim(),
-          totalUdharo: 0,
-          totalPayable: 0
-        })
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || (lang === 'en' ? 'Could not save' : 'सुरक्षित गर्न सकिएन'));
+      try {
+        const data = await apiFetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(personPayload)
+        });
+        if (data && !data.success) throw new Error(data.error || (lang === 'en' ? 'Could not save' : 'सुरक्षित गर्न सकिएन'));
+      } catch (netErr) {
+        // Fallback: update offline cache
+        if (activeTab === 'receivable') {
+          const custs = getInitialCustomers();
+          custs.unshift({ _id: 'cust_' + Date.now(), ...personPayload });
+          setLocalStore('kk_cached_custs', custs);
+        } else {
+          const supps = getInitialSuppliers();
+          supps.unshift({ _id: 'supp_' + Date.now(), ...personPayload });
+          setLocalStore('kk_cached_supps', supps);
+        }
+      }
 
       onRefreshData();
       setModalType(null);
@@ -150,20 +165,37 @@ export default function UdharoView({ customers, suppliers, onRefreshData }) {
         entryType = modalType === 'add_udharo' ? 'PURCHASE_CREDIT' : 'PAYMENT_MADE';
       }
 
-      const res = await fetch('/api/udharo/entry', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          partyType,
-          partyId: pId,
-          amount: amt,
-          entryType,
-          notes: formData.notes
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || (lang === 'en' ? 'Could not record' : 'रेकर्ड राख्न सकिएन'));
+      try {
+        const data = await apiFetch('/api/udharo/entry', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            partyType,
+            partyId: pId,
+            amount: amt,
+            entryType,
+            notes: formData.notes
+          })
+        });
+        if (data && !data.success) throw new Error(data.error || (lang === 'en' ? 'Could not record' : 'रेकर्ड राख्न सकिएन'));
+      } catch (netErr) {
+        // Offline ledger balance adjustment
+        if (partyType === 'Customer') {
+          const custs = getInitialCustomers();
+          const c = custs.find(item => item._id === pId);
+          if (c) {
+            c.totalUdharo = Math.max(0, (c.totalUdharo || 0) + (entryType === 'SALE_CREDIT' ? amt : -amt));
+            setLocalStore('kk_cached_custs', custs);
+          }
+        } else {
+          const supps = getInitialSuppliers();
+          const s = supps.find(item => item._id === pId);
+          if (s) {
+            s.totalPayable = Math.max(0, (s.totalPayable || 0) + (entryType === 'PURCHASE_CREDIT' ? amt : -amt));
+            setLocalStore('kk_cached_supps', supps);
+          }
+        }
+      }
 
       onRefreshData();
       setModalType(null);

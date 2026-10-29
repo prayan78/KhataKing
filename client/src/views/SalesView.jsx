@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
+import { apiFetch, recordOfflineSale, getLocalStore } from '../utils/api';
 import { 
   Plus, 
   Minus, 
@@ -30,18 +31,19 @@ export default function SalesView({ products, customers, onSaleCompleted, onView
   const [receivedAmount, setReceivedAmount] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [recentSales, setRecentSales] = useState([]);
+  const [recentSales, setRecentSales] = useState(() => getLocalStore('kk_offline_sales', []));
 
   // Fetch recent sales so shopkeeper always sees their persisted sales even after reload
   const fetchRecentSales = async () => {
     try {
-      const res = await fetch('/api/sales');
-      const data = await res.json();
-      if (data.success && data.sales) {
+      const data = await apiFetch('/api/sales');
+      if (data && data.success && data.sales) {
         setRecentSales(data.sales);
       }
     } catch (e) {
-      console.warn('Could not load recent sales:', e);
+      // Fallback to offline stored sales
+      const local = getLocalStore('kk_offline_sales', []);
+      setRecentSales(local);
     }
   };
 
@@ -139,30 +141,41 @@ export default function SalesView({ products, customers, onSaleCompleted, onView
 
     try {
       const idempotencyKey = `sale_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-      let custName = 'नगद ग्राहक (Cash Customer)';
+      let custName = lang === 'en' ? 'Cash Customer' : 'नगद ग्राहक (Cash Customer)';
       if (saleType === 'credit') {
         const found = customers.find(c => c._id === selectedCustomerId);
         custName = found ? found.name : newCustomerName.trim();
       }
 
-      const res = await fetch('/api/sales', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          idempotencyKey,
-          items: cart,
-          grandTotal,
-          paymentType: saleType,
-          customerId: selectedCustomerId || null,
-          customerName: custName,
-          receivedAmount: saleType === 'cash' ? (parseFloat(receivedAmount) || grandTotal) : 0,
-          notes: saleType === 'credit' ? 'पसलबाट उधारो सामान' : 'नगद बिक्री'
-        })
-      });
+      const salePayload = {
+        idempotencyKey,
+        items: cart,
+        grandTotal,
+        paymentType: saleType,
+        customerId: selectedCustomerId || null,
+        customerName: custName,
+        receivedAmount: saleType === 'cash' ? (parseFloat(receivedAmount) || grandTotal) : 0,
+        notes: saleType === 'credit' ? (lang === 'en' ? 'Shop credit sale' : 'पसलबाट उधारो सामान') : (lang === 'en' ? 'Cash sale' : 'नगद बिक्री')
+      };
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'बिक्री सुरक्षित गर्न सकिएन');
+      let finalSale = null;
+
+      try {
+        const data = await apiFetch('/api/sales', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(salePayload)
+        });
+        if (data && data.success && data.sale) {
+          finalSale = data.sale;
+        }
+      } catch (netErr) {
+        console.warn('Network API unavailable, recording sale locally:', netErr.message);
+      }
+
+      // If backend is offline or on standalone Android, record offline locally
+      if (!finalSale) {
+        finalSale = recordOfflineSale(salePayload);
       }
 
       // Reset form and notify parent to display receipt modal
@@ -171,9 +184,9 @@ export default function SalesView({ products, customers, onSaleCompleted, onView
       setNewCustomerName('');
       setReceivedAmount('');
       fetchRecentSales();
-      onSaleCompleted(data.sale);
+      onSaleCompleted(finalSale);
     } catch (err) {
-      setErrorMessage(err.message);
+      setErrorMessage(err.message || (lang === 'en' ? 'Failed to record sale' : 'बिक्री सुरक्षित गर्न सकिएन'));
     } finally {
       setIsSubmitting(false);
     }
