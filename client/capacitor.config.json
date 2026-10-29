@@ -1,0 +1,17 @@
+{
+  "appId": "com.khataking.app",
+  "appName": "KhataKing",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 2000,
+      "backgroundColor": "#023c2e",
+      "showSpinner": false
+    }
+  }
+}
+

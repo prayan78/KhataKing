@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">KhataKing</string>
+    <string name="title_activity_main">KhataKing</string>
+    <string name="package_name">com.khataking.app</string>
+    <string name="custom_url_scheme">com.khataking.app</string>
+</resources>

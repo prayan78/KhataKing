@@ -1,0 +1,35 @@
+{
+  "name": "KhataKing - नेपालको किराना खाता",
+  "short_name": "KhataKing",
+  "description": "Ultra-Simple Kirana Shop Management App for Nepal",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#023c2e",
+  "theme_color": "#023c2e",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/favicon-32.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/khataking-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
+

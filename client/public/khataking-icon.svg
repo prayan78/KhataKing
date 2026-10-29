@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#054c3a"/>
+      <stop offset="50%" stop-color="#023c2e"/>
+      <stop offset="100%" stop-color="#01261d"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f5d77f"/>
+      <stop offset="40%" stop-color="#d4af37"/>
+      <stop offset="100%" stop-color="#b8861b"/>
+    </linearGradient>
+    <filter id="goldGlow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- App Rounded Background Container -->
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="url(#bgGrad)" stroke="#115c48" stroke-width="4"/>
+
+  <!-- Golden Ring -->
+  <circle cx="256" cy="256" r="190" fill="none" stroke="url(#goldGrad)" stroke-width="12" filter="url(#goldGlow)"/>
+
+  <!-- Crown and Rupee Emblem in Gold -->
+  <g fill="url(#goldGrad)" filter="url(#goldGlow)">
+    <!-- 5-Point Crown on Top -->
+    <!-- Crown Base Band -->
+    <path d="M 170 178 L 342 178 Q 342 184 336 186 L 176 186 Q 170 184 170 178 Z" />
+    
+    <!-- Crown Spikes -->
+    <path d="M 172 176 L 174 135 L 208 156 L 256 112 L 304 156 L 338 135 L 340 176 Z" />
+    <!-- Crown Jewels / Spheres -->
+    <circle cx="174" cy="132" r="7"/>
+    <circle cx="215" cy="154" r="6"/>
+    <circle cx="256" cy="108" r="9"/>
+    <circle cx="297" cy="154" r="6"/>
+    <circle cx="338" cy="132" r="7"/>
+
+    <!-- Rupee (₹) Symbol -->
+    <!-- Top Horizontal Bar -->
+    <rect x="176" y="200" width="160" height="22" rx="4"/>
+    
+    <!-- Second Horizontal Bar (Crossbar) -->
+    <rect x="176" y="242" width="125" height="20" rx="4"/>
+
+    <!-- Central Stem, Curved Upper Bowl, and Slanted Leg -->
+    <!-- Stem & Upper Arc -->
+    <path d="M 218 200 L 218 280 C 255 280 294 275 294 246 C 294 218 258 212 236 212 L 236 200" 
+          fill="none" stroke="url(#goldGrad)" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+    
+    <!-- Lower Diagonal Leg -->
+    <path d="M 230 274 L 322 388 C 326 393 332 396 338 396 L 348 396 L 310 350 L 250 274 Z"/>
+    
+    <!-- Vertical support stem down to base -->
+    <path d="M 218 200 L 218 290 L 238 290 L 238 200 Z"/>
+    <path d="M 230 270 L 320 388 L 300 388 L 222 284 Z" fill="url(#goldGrad)"/>
+    
+    <!-- Refined smooth Rupee Path directly -->
+    <path d="M 218 200 L 240 200 L 240 286 C 275 284 300 272 300 244 C 300 220 275 210 240 210 L 240 200
+             M 232 278 L 324 394 L 298 394 L 218 292 Z" />
+  </g>
+</svg>

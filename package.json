@@ -1,0 +1,26 @@
+{
+  "name": "khataking",
+  "version": "1.0.0",
+  "description": "Ultra-Simple Kirana Shop Management App for Nepal",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "cd server && npm start",
+    "server": "cd server && npm start",
+    "server:dev": "cd server && npm run dev",
+    "client": "cd client && npm run dev",
+    "build": "cd client && npm run build",
+    "android:sync": "cd client && npm run build && npx cap sync android",
+    "android:open": "cd client && npx cap open android",
+    "test": "node server/test/acceptance.test.js",
+    "test:db": "node server/test/test-connection.js"
+  },
+  "keywords": [
+    "kirana",
+    "nepal",
+    "udharo",
+    "khataking",
+    "accounting"
+  ],
+  "author": "KhataKing Team",
+  "license": "MIT"
+}
