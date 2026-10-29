@@ -284,13 +284,13 @@ export default function StockView({ products, onRefreshProducts }) {
                         <button
                           type="button"
                           onClick={() => setPreviewImageUrl(p.imageUrl)}
-                          className="w-12 h-12 rounded-xl bg-white border border-slate-200 p-0.5 flex-shrink-0 flex items-center justify-center overflow-hidden shadow-2xs active:scale-95 hover:border-emerald-500"
+                          className="w-14 h-14 rounded-xl bg-white border border-slate-200 p-0.5 flex-shrink-0 flex items-center justify-center overflow-hidden shadow-2xs active:scale-95 hover:border-emerald-500"
                           title={lang === 'en' ? 'Click to enlarge photo' : 'तस्बिर ठूलो बनाएर हेर्नुहोस्'}
                         >
                           <img src={p.imageUrl} alt={p.name} className="w-full h-full object-contain" />
                         </button>
                       ) : (
-                        <div className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 flex-shrink-0 flex items-center justify-center text-slate-400">
+                        <div className="w-14 h-14 rounded-xl bg-slate-100 border border-slate-200 flex-shrink-0 flex items-center justify-center text-slate-400">
                           <Package className="w-5 h-5 text-emerald-800/40" />
                         </div>
                       )}
@@ -758,4 +758,3 @@ export default function StockView({ products, onRefreshProducts }) {
     </div>
   );
 }
-

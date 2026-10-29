@@ -284,7 +284,7 @@ export default function UdharoView({ customers, suppliers, onRefreshData }) {
       </div>
 
       {/* 4. Person Cards List */}
-      <div className="space-y-3">
+      <div className="space-y-2.5">
         {filteredList.length === 0 ? (
           <div className="p-10 bg-white rounded-3xl text-center text-slate-500 border border-slate-200">
             <p className="text-xl font-bold">{t('noAccountFound')}</p>
@@ -298,13 +298,13 @@ export default function UdharoView({ customers, suppliers, onRefreshData }) {
             return (
               <div
                 key={person._id}
-                className="bg-white rounded-2xl p-4 shadow-sm border-2 border-slate-100 hover:border-slate-300 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                className="bg-white rounded-2xl p-3 shadow-sm border-2 border-slate-100 hover:border-slate-300 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
               >
                 {/* Person details */}
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <h3 className="text-xl font-black text-slate-900">{person.name}</h3>
-                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-black ${
+                    <h3 className="text-lg font-black text-slate-900">{person.name}</h3>
+                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
                       hasDue 
                         ? (activeTab === 'receivable' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800')
                         : 'bg-emerald-100 text-emerald-800'
@@ -313,7 +313,7 @@ export default function UdharoView({ customers, suppliers, onRefreshData }) {
                     </span>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600 font-semibold mt-1">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 font-semibold mt-0.5">
                     {person.phone && (
                       <span className="flex items-center gap-1">
                         <Phone className="w-3.5 h-3.5 text-slate-400" />
@@ -330,10 +330,10 @@ export default function UdharoView({ customers, suppliers, onRefreshData }) {
                 </div>
 
                 {/* Amount & Actions */}
-                <div className="flex flex-col sm:items-end gap-2">
+                <div className="flex flex-col sm:items-end gap-1.5">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-sm text-slate-500 font-bold">{t('balance')}:</span>
-                    <span className={`text-2xl font-black ${
+                    <span className="text-xs text-slate-500 font-bold">{t('balance')}:</span>
+                    <span className={`text-xl font-black ${
                       hasDue ? (activeTab === 'receivable' ? 'text-amber-700' : 'text-red-600') : 'text-emerald-700'
                     }`}>
                       रु. {(balance || 0).toLocaleString()}
@@ -341,27 +341,27 @@ export default function UdharoView({ customers, suppliers, onRefreshData }) {
                   </div>
 
                   {/* Action buttons with large touch areas */}
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <button
                       onClick={() => handleOpenTransaction('add_udharo', person)}
-                      className="min-h-[44px] px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 font-extrabold text-sm flex items-center gap-1.5 border border-amber-300"
+                      className="min-h-[40px] px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 font-extrabold text-xs flex items-center gap-1 border border-amber-300"
                     >
-                      <Plus className="w-4 h-4 text-amber-700" />
+                      <Plus className="w-3.5 h-3.5 text-amber-700" />
                       <span>{activeTab === 'receivable' ? t('addCreditBtn') : t('addPurchaseBtn')}</span>
                     </button>
 
                     <button
                       onClick={() => handleOpenTransaction('add_payment', person)}
-                      className="min-h-[44px] px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-950 font-extrabold text-sm flex items-center gap-1.5 border border-emerald-300"
+                      className="min-h-[40px] px-2.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-950 font-extrabold text-xs flex items-center gap-1 border border-emerald-300"
                     >
                       {activeTab === 'receivable' ? (
                         <>
-                          <ArrowDownLeft className="w-4 h-4 text-emerald-700" />
+                          <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-700" />
                           <span>{t('receivePaymentBtn')}</span>
                         </>
                       ) : (
                         <>
-                          <ArrowUpRight className="w-4 h-4 text-emerald-700" />
+                          <ArrowUpRight className="w-3.5 h-3.5 text-emerald-700" />
                           <span>{t('makePaymentBtn')}</span>
                         </>
                       )}
@@ -369,9 +369,9 @@ export default function UdharoView({ customers, suppliers, onRefreshData }) {
 
                     <button
                       onClick={() => handleOpenHistory(person)}
-                      className="min-h-[44px] px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm flex items-center gap-1 border border-slate-200"
+                      className="min-h-[40px] px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center gap-1 border border-slate-200"
                     >
-                      <History className="w-4 h-4 text-slate-500" />
+                      <History className="w-3.5 h-3.5 text-slate-500" />
                       <span>{t('ledgerBtn')}</span>
                     </button>
                   </div>
@@ -601,4 +601,3 @@ export default function UdharoView({ customers, suppliers, onRefreshData }) {
     </div>
   );
 }
-

@@ -74,7 +74,7 @@ export default function TotalsView({ onViewReceipt }) {
       ) : (
         <>
           {/* 2. Top Large Sales Card */}
-          <div className="p-6 rounded-3xl bg-gradient-to-br from-[#023c2e] via-[#034b39] to-[#01261d] text-white shadow-xl border border-emerald-700/40 relative overflow-hidden">
+          <div className="p-4 sm:p-6 rounded-3xl bg-gradient-to-br from-[#023c2e] via-[#034b39] to-[#01261d] text-white shadow-xl border border-emerald-700/40 relative overflow-hidden">
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm sm:text-base font-extrabold text-[#f5d77f] flex items-center gap-1.5 uppercase tracking-wide">
                 <TrendingUp className="w-5 h-5 text-[#f5d77f]" />
@@ -89,13 +89,13 @@ export default function TotalsView({ onViewReceipt }) {
               </button>
             </div>
 
-            <div className="text-4xl sm:text-5xl font-black tracking-tight text-white mt-1">
+            <div className="text-3xl sm:text-5xl font-black tracking-tight text-white mt-1">
               रु. {(data?.totalSales || 0).toLocaleString()}
             </div>
 
-            <div className="mt-4 pt-4 border-t border-emerald-800/80 flex items-center justify-between text-sm sm:text-base font-semibold text-emerald-200">
+            <div className="mt-3 pt-3 border-t border-emerald-800/80 flex items-center justify-between text-sm sm:text-base font-semibold text-emerald-200">
               <span>{t('totalTransactions')}:</span>
-              <span className="font-extrabold text-white text-lg">
+              <span className="font-extrabold text-white text-base sm:text-lg">
                 {data?.transactionCount || 0} {t('timesCount')}
               </span>
             </div>
@@ -214,4 +214,3 @@ export default function TotalsView({ onViewReceipt }) {
     </div>
   );
 }
-
