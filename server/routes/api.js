@@ -86,13 +86,26 @@ router.get('/products', async (req, res) => {
 
 router.post('/products', async (req, res) => {
   try {
-    const { name, sellingPrice } = req.body;
-    if (!name || sellingPrice === undefined) {
-      return res.status(400).json({ success: false, error: 'सामानको नाम र मूल्य आवश्यक छ (Product name and price required)' });
+    const { name, sellingPrice, category, brand, variant, size, unit } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'सामानको नाम अनिवार्य छ (Product name is required)' });
     }
-    const product = await store.createProduct('shop_kirana_001', req.body);
+    if (sellingPrice === undefined || isNaN(Number(sellingPrice)) || Number(sellingPrice) < 0) {
+      return res.status(400).json({ success: false, error: 'मान्य बिक्री मूल्य अनिवार्य छ (Valid selling price is required)' });
+    }
+
+    console.log(`[PRODUCT_PERSIST_REQUEST] Name: "${name.trim()}" | Category: "${category || 'General Kirana'}" | Brand: "${brand || ''}" | Price: Rs. ${sellingPrice} | Unit: "${unit || 'थान'}"`);
+
+    const product = await store.createProduct('shop_kirana_001', {
+      ...req.body,
+      name: name.trim(),
+      sellingPrice: Number(sellingPrice)
+    });
+
+    console.log(`[PRODUCT_PERSIST_SUCCESS] ID: ${product._id} | Name: "${product.name}" | Category: "${product.category}"`);
     res.status(201).json({ success: true, product });
   } catch (err) {
+    console.error('[PRODUCT_PERSIST_ERROR]', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -267,17 +280,26 @@ router.post('/ocr/scan', upload.single('image'), async (req, res) => {
 // 10. Single Product Photo Scan
 router.post('/ocr/product-photo', upload.single('image'), async (req, res) => {
   try {
+    const requestId = req.headers['x-request-id'] || req.body?.requestId || ('req_' + Date.now());
     let filePath = req.file ? req.file.path : '';
     let filename = req.file ? req.file.originalname : 'product.jpg';
+    let mimeType = req.file ? req.file.mimetype : 'image/jpeg';
     let fileUrl = req.file ? `/uploads/${req.file.filename}` : '/uploads/sample_product.jpg';
 
-    const result = await processProductPhoto(filePath, filename);
+    console.log(`[SCAN_PRODUCT_REQUEST] ID: ${requestId} | File: ${filename} | Size: ${req.file?.size || 0} bytes`);
+
+    const result = await processProductPhoto(filePath, filename, mimeType, requestId);
+
+    console.log(`[SCAN_PRODUCT_RESPONSE] ID: ${requestId} | Identified: "${result.product.productName || '(Unrecognized)'}" | Category: "${result.product.category}" | Conf: ${result.product.confidence}`);
+
     res.json({
       success: true,
+      requestId,
       imageUrl: fileUrl,
       product: result.product
     });
   } catch (err) {
+    console.error('[SCAN_PRODUCT_ERROR]', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });

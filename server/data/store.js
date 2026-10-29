@@ -442,17 +442,20 @@ class KiranaStore {
 
   async createProduct(shopId = DEFAULT_SHOP_ID, prodData) {
     const newProd = {
-      _id: 'prod_' + Date.now(),
+      _id: prodData._id || ('prod_' + Date.now() + '_' + Math.random().toString(36).substring(7)),
       shopId,
-      name: prodData.name,
-      nameEn: prodData.nameEn || '',
+      name: prodData.name?.trim(),
+      nameEn: prodData.nameEn?.trim() || '',
+      brand: prodData.brand?.trim() || '',
+      category: prodData.category?.trim() || 'General Kirana',
+      variant: prodData.variant?.trim() || '',
+      size: prodData.size?.trim() || '',
       sellingPrice: Number(prodData.sellingPrice) || 0,
       costPrice: Number(prodData.costPrice) || 0,
       stockQty: Number(prodData.stockQty) || 0,
       unit: prodData.unit || 'थान',
       minStockAlert: Number(prodData.minStockAlert) || 5,
       barcode: prodData.barcode || '',
-      category: prodData.category || 'किराना',
       imageUrl: prodData.imageUrl || '',
       isActive: true,
       createdAt: new Date().toISOString()

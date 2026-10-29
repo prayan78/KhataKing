@@ -12,6 +12,44 @@
   },
   "products": [
     {
+      "_id": "prod_1793249363331_ijlkd",
+      "shopId": "shop_kirana_001",
+      "name": "नेपाली जिरा मसिनो चामल",
+      "nameEn": "",
+      "brand": "",
+      "category": "General Kirana",
+      "variant": "",
+      "size": "",
+      "sellingPrice": 2200,
+      "costPrice": 2000,
+      "stockQty": 15,
+      "unit": "बोरा",
+      "minStockAlert": 5,
+      "barcode": "",
+      "imageUrl": "",
+      "isActive": true,
+      "createdAt": "2026-10-29T04:49:23.331Z"
+    },
+    {
+      "_id": "prod_1793249362805_abkjgi",
+      "shopId": "shop_kirana_001",
+      "name": "Cetirizine 10mg Tablets (Alatrol)",
+      "nameEn": "Cetirizine 10mg",
+      "brand": "Square Pharma",
+      "category": "Medicine",
+      "variant": "10mg",
+      "size": "10 Tablets Strip",
+      "sellingPrice": 35,
+      "costPrice": 25,
+      "stockQty": 50,
+      "unit": "पत्ता",
+      "minStockAlert": 5,
+      "barcode": "",
+      "imageUrl": "",
+      "isActive": true,
+      "createdAt": "2026-10-29T04:49:22.806Z"
+    },
+    {
       "_id": "prod_1793236030722",
       "shopId": "shop_kirana_001",
       "name": "नेपाली जिरा मसिनो चामल",
@@ -209,6 +247,17 @@
   ],
   "customers": [
     {
+      "_id": "cust_1793249363337_qznohn",
+      "shopId": "shop_kirana_001",
+      "name": "गोविन्द प्रसाद अधिकारी",
+      "phone": "9841999888",
+      "address": "",
+      "totalUdharo": 4600,
+      "notes": "",
+      "lastTransactionDate": "2026-10-29T04:49:23.339Z",
+      "createdAt": "2026-10-29T04:49:23.337Z"
+    },
+    {
       "_id": "cust_1793245377657",
       "shopId": "shop_kirana_001",
       "name": "prayan",
@@ -288,6 +337,17 @@
   ],
   "suppliers": [
     {
+      "_id": "supp_1793249363340_3jnmoa",
+      "shopId": "shop_kirana_001",
+      "name": "नेपाल तेल भण्डार",
+      "phone": "",
+      "address": "",
+      "totalPayable": 6000,
+      "notes": "",
+      "lastTransactionDate": "2026-10-29T04:49:23.342Z",
+      "createdAt": "2026-10-29T04:49:23.340Z"
+    },
+    {
       "_id": "supp_1793236030728",
       "shopId": "shop_kirana_001",
       "name": "नेपाल तेल भण्डार",
@@ -344,6 +404,84 @@
     }
   ],
   "sales": [
+    {
+      "_id": "sale_1793249363338_qjrfir",
+      "shopId": "shop_kirana_001",
+      "saleNumber": "KK-1021",
+      "idempotencyKey": "auto_1793249363338",
+      "items": [
+        {
+          "productId": "prod_1793249363331_ijlkd",
+          "name": "नेपाली जिरा मसिनो चामल",
+          "quantity": 3,
+          "unitPrice": 2200,
+          "lineTotal": 6600,
+          "unit": "बोरा"
+        }
+      ],
+      "grandTotal": 6600,
+      "paymentType": "credit",
+      "customerId": "cust_1793249363337_qznohn",
+      "customerName": "गोविन्द प्रसाद अधिकारी",
+      "customerPhone": "",
+      "receivedAmount": 0,
+      "changeAmount": 0,
+      "notes": "",
+      "date": "2026-10-29T04:49:23.338Z",
+      "isReturned": false
+    },
+    {
+      "_id": "sale_1793249363336_4nvwj",
+      "shopId": "shop_kirana_001",
+      "saleNumber": "KK-1020",
+      "idempotencyKey": "auto_1793249363336",
+      "items": [
+        {
+          "productId": null,
+          "name": "विविध किराना सामान",
+          "quantity": 1,
+          "unitPrice": 350,
+          "lineTotal": 350,
+          "unit": "थान"
+        }
+      ],
+      "grandTotal": 350,
+      "paymentType": "cash",
+      "customerId": null,
+      "customerName": "नगद ग्राहक (Cash Customer)",
+      "customerPhone": "",
+      "receivedAmount": 350,
+      "changeAmount": 0,
+      "notes": "",
+      "date": "2026-10-29T04:49:23.336Z",
+      "isReturned": false
+    },
+    {
+      "_id": "sale_1793249363334_b7n3qj",
+      "shopId": "shop_kirana_001",
+      "saleNumber": "KK-1019",
+      "idempotencyKey": "auto_1793249363334",
+      "items": [
+        {
+          "productId": "prod_1793249363331_ijlkd",
+          "name": "नेपाली जिरा मसिनो चामल",
+          "quantity": 2,
+          "unitPrice": 2200,
+          "lineTotal": 4400,
+          "unit": "बोरा"
+        }
+      ],
+      "grandTotal": 4400,
+      "paymentType": "cash",
+      "customerId": null,
+      "customerName": "नगद ग्राहक (Cash Customer)",
+      "customerPhone": "",
+      "receivedAmount": 4400,
+      "changeAmount": 0,
+      "notes": "",
+      "date": "2026-10-29T04:49:23.334Z",
+      "isReturned": false
+    },
     {
       "_id": "sale_1793246529169",
       "shopId": "shop_kirana_001",
@@ -831,6 +969,62 @@
   ],
   "ledgerEntries": [
     {
+      "_id": "led_1793249363342_fzcbc",
+      "shopId": "shop_kirana_001",
+      "partyType": "Supplier",
+      "partyId": "supp_1793249363340_3jnmoa",
+      "partyName": "नेपाल तेल भण्डार",
+      "direction": "PAYABLE",
+      "entryType": "PAYMENT_MADE",
+      "amount": 4000,
+      "balanceAfter": 6000,
+      "referenceSaleId": null,
+      "notes": "नगद भुक्तानी",
+      "date": "2026-10-29T04:49:23.342Z"
+    },
+    {
+      "_id": "led_1793249363341_i8ji",
+      "shopId": "shop_kirana_001",
+      "partyType": "Supplier",
+      "partyId": "supp_1793249363340_3jnmoa",
+      "partyName": "नेपाल तेल भण्डार",
+      "direction": "PAYABLE",
+      "entryType": "PURCHASE_CREDIT",
+      "amount": 10000,
+      "balanceAfter": 10000,
+      "referenceSaleId": null,
+      "notes": "१० कार्टुन तेल उधारो खरिद",
+      "date": "2026-10-29T04:49:23.341Z"
+    },
+    {
+      "_id": "led_1793249363339_n61etn",
+      "shopId": "shop_kirana_001",
+      "partyType": "Customer",
+      "partyId": "cust_1793249363337_qznohn",
+      "partyName": "गोविन्द प्रसाद अधिकारी",
+      "direction": "RECEIVABLE",
+      "entryType": "PAYMENT_RECEIVED",
+      "amount": 2000,
+      "balanceAfter": 4600,
+      "referenceSaleId": null,
+      "notes": "आंशिक नगद बुझाएको",
+      "date": "2026-10-29T04:49:23.339Z"
+    },
+    {
+      "_id": "led_1793249363338_8smq3p",
+      "shopId": "shop_kirana_001",
+      "partyType": "Customer",
+      "partyId": "cust_1793249363337_qznohn",
+      "partyName": "गोविन्द प्रसाद अधिकारी",
+      "direction": "RECEIVABLE",
+      "entryType": "SALE_CREDIT",
+      "amount": 6600,
+      "balanceAfter": 6600,
+      "referenceSaleId": "sale_1793249363338_qjrfir",
+      "notes": "उधारो सामान बिक्री (रसिद नं. KK-1021)",
+      "date": "2026-10-29T04:49:23.338Z"
+    },
+    {
       "_id": "led_1793246529169",
       "shopId": "shop_kirana_001",
       "partyType": "Customer",
@@ -1098,6 +1292,32 @@
     }
   ],
   "stockMovements": [
+    {
+      "_id": "sm_1793249363338_igsqxq",
+      "shopId": "shop_kirana_001",
+      "productId": "prod_1793249363331_ijlkd",
+      "productName": "नेपाली जिरा मसिनो चामल",
+      "type": "SALE",
+      "delta": -3,
+      "beforeQty": 18,
+      "afterQty": 15,
+      "reason": "बिक्री रसिद KK-1021",
+      "referenceId": "sale_1793249363338_qjrfir",
+      "date": "2026-10-29T04:49:23.338Z"
+    },
+    {
+      "_id": "sm_1793249363335_hcucjg",
+      "shopId": "shop_kirana_001",
+      "productId": "prod_1793249363331_ijlkd",
+      "productName": "नेपाली जिरा मसिनो चामल",
+      "type": "SALE",
+      "delta": -2,
+      "beforeQty": 20,
+      "afterQty": 18,
+      "reason": "बिक्री रसिद KK-1019",
+      "referenceId": "sale_1793249363334_b7n3qj",
+      "date": "2026-10-29T04:49:23.334Z"
+    },
     {
       "_id": "sm_1793236030726_wtumk8",
       "shopId": "shop_kirana_001",

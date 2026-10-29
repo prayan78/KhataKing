@@ -4,6 +4,8 @@
  * regex & pattern extraction, product recognition, and shelf detection.
  */
 
+import { identifyProductImage } from './aiVisionService.js';
+
 // Nepali Devanagari to Arabic numeral mapping
 const DEVANAGARI_DIGITS = {
   '०': '0', '१': '1', '२': '2', '३': '3', '४': '4',
@@ -96,68 +98,40 @@ export const processKiranaDocument = async (filePath, originalFilename) => {
 };
 
 /**
- * 2. Process Single Product Photo (Packaging, barcode or bottle)
+ * 2. Process Single Product Photo (AI Vision & Packaging Inspection)
  */
-export const processProductPhoto = async (filePath, originalFilename) => {
-  const sampleDetections = [
-    {
-      name: 'वाइवाइ तयारी चाउचाउ (७५ ग्राम)',
-      nameEn: 'Wai Wai Instant Noodles 75g',
-      sellingPrice: 25,
-      costPrice: 21,
-      unit: 'पोका',
-      category: 'खाजा तथा स्न्याक्स',
-      confidence: 'HIGH',
-      barcode: '8901230005'
-    },
-    {
-      name: 'धारा शुद्ध तोरीको तेल (१ लिटर)',
-      nameEn: 'Dhara Pure Mustard Oil 1L',
-      sellingPrice: 260,
-      costPrice: 235,
-      unit: 'बोतल',
-      category: 'तेल तथा घ्यू',
-      confidence: 'HIGH',
-      barcode: '8901230012'
-    },
-    {
-      name: 'पारले-जी ग्लुकोज बिस्कुट (८० ग्राम)',
-      nameEn: 'Parle-G Glucose Biscuit 80g',
-      sellingPrice: 15,
-      costPrice: 12,
-      unit: 'पोका',
-      category: 'बिस्कुट',
-      confidence: 'HIGH',
-      barcode: '8901230018'
-    },
-    {
-      name: 'कोलगेट म्याक्सफ्रेस टुथपेस्ट (१५० ग्राम)',
-      nameEn: 'Colgate MaxFresh Toothpaste 150g',
-      sellingPrice: 130,
-      costPrice: 110,
-      unit: 'थान',
-      category: 'सरसफाइ',
-      confidence: 'HIGH',
-      barcode: '8901230025'
-    }
-  ];
+export const processProductPhoto = async (filePath, originalFilename, mimeType = 'image/jpeg', requestId = '') => {
+  const aiResult = await identifyProductImage({
+    filePath,
+    originalFilename,
+    mimeType,
+    requestId: requestId || ('req_scan_' + Date.now())
+  });
 
-  const picked = sampleDetections[Math.floor(Math.random() * sampleDetections.length)];
+  const p = aiResult.product;
 
   return {
     success: true,
+    requestId: aiResult.requestId,
+    provider: aiResult.provider,
     product: {
       id: 'detected_' + Date.now(),
-      name: picked.name,
-      nameEn: picked.nameEn,
-      sellingPrice: picked.sellingPrice,
-      costPrice: picked.costPrice,
+      productName: p.productName,
+      name: p.productName,
+      nameEn: p.nameEn || p.productName,
+      brand: p.brand || '',
+      category: p.category || 'Other',
+      variant: p.variant || '',
+      size: p.size || '',
+      sellingPrice: p.suggestedSellingPrice || 0,
+      costPrice: p.suggestedCostPrice || 0,
       stockQty: 10,
-      unit: picked.unit,
+      unit: p.unit || 'थान',
       minStockAlert: 5,
-      barcode: picked.barcode,
-      category: picked.category,
-      confidence: picked.confidence
+      barcode: p.barcode || null,
+      extractedText: p.extractedText || [],
+      confidence: p.confidence,
+      needsReview: p.needsReview
     }
   };
 };

@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "test": "node test/ai-product-identification.test.js && node test/acceptance.test.js",
+    "test:ai": "node test/ai-product-identification.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

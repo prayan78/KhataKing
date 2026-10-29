@@ -14,12 +14,45 @@ import {
   Trash2, 
   CheckCircle2, 
   AlertCircle,
+  AlertTriangle,
   Eye,
   Sparkles,
   ArrowRight,
   ShieldCheck,
-  RefreshCw
+  RefreshCw,
+  Tag,
+  Hash,
+  ShoppingBag
 } from 'lucide-react';
+
+// Standardized categories for Kirana and Retail
+const PRODUCT_CATEGORIES = [
+  'Medicine',
+  'Food & Grains',
+  'Snacks & Noodles',
+  'Biscuits & Bakery',
+  'Beverages',
+  'Oil & Ghee',
+  'Dairy',
+  'Personal Care & Hygiene',
+  'Household & Cleaning',
+  'Spices & Masala',
+  'Baby Care',
+  'General Kirana',
+  'Other'
+];
+
+const PRODUCT_UNITS = [
+  { value: 'थान', labelNe: 'थान (Piece)', labelEn: 'Piece (Pcs)' },
+  { value: 'पत्ता', labelNe: 'पत्ता / स्ट्रिप (Strip - औषधि)', labelEn: 'Strip (Medicine)' },
+  { value: 'पोका', labelNe: 'पोका (Packet)', labelEn: 'Packet (Pkt)' },
+  { value: 'बोतल', labelNe: 'बोतल (Bottle)', labelEn: 'Bottle' },
+  { value: 'बट्टा', labelNe: 'बट्टा (Box/Carton)', labelEn: 'Box' },
+  { value: 'के.जी.', labelNe: 'के.जी. (Kg)', labelEn: 'Kilogram (Kg)' },
+  { value: 'ग्राम', labelNe: 'ग्राम (Gram)', labelEn: 'Gram (g)' },
+  { value: 'लिटर', labelNe: 'लिटर (Liter)', labelEn: 'Liter (L)' },
+  { value: 'दर्जन', labelNe: 'दर्जन (Dozen)', labelEn: 'Dozen' }
+];
 
 export default function ScanView({ onImportSuccess }) {
   const { t, lang } = useLanguage();
@@ -37,8 +70,9 @@ export default function ScanView({ onImportSuccess }) {
   const [batchId, setBatchId] = useState(null);
   const [extractedRows, setExtractedRows] = useState([]);
 
-  // 2. Single product scan state
-  const [detectedProduct, setDetectedProduct] = useState(null);
+  // 2. Single product scan state & Confirmation Form
+  const [confirmationForm, setConfirmationForm] = useState(null);
+  const scanRequestIdRef = useRef(0);
 
   // 3. Rack / Shelf scan state
   const [rackProducts, setRackProducts] = useState([]);
@@ -47,7 +81,7 @@ export default function ScanView({ onImportSuccess }) {
   const handleSwitchMode = (mode) => {
     setScanMode(mode);
     setPreviewImage(null);
-    setDetectedProduct(null);
+    setConfirmationForm(null);
     setRackProducts([]);
     setExtractedRows([]);
     setSuccessMessage('');
@@ -57,7 +91,7 @@ export default function ScanView({ onImportSuccess }) {
   /**
    * Universal client-side fallback extractor if backend /api/ocr returns HTML or network fails
    */
-  const getFallbackRecords = (mode) => {
+  const getFallbackRecords = (mode, filename = '') => {
     if (mode === 'paper') {
       return [
         {
@@ -118,18 +152,47 @@ export default function ScanView({ onImportSuccess }) {
         }
       ];
     } else if (mode === 'single_product') {
+      const lower = (filename || '').toLowerCase();
+      let cat = 'Other';
+      let name = '';
+      let brand = '';
+      let variant = '';
+      let size = '';
+      let unit = 'थान';
+      let conf = 0.2;
+
+      if (lower.includes('paracetamol') || lower.includes('cetirizine') || lower.includes('medicine') || lower.includes('syrup') || lower.includes('napa') || lower.includes('flexon')) {
+        cat = 'Medicine';
+        name = lower.includes('cetirizine') ? 'Cetirizine 10mg Tablets' : 'Paracetamol 500mg';
+        variant = lower.includes('cetirizine') ? '10mg' : '500mg';
+        size = '10 Tablets';
+        unit = 'पत्ता';
+        conf = 0.8;
+      } else if (lower.includes('wai') || lower.includes('noodle')) {
+        cat = 'Snacks & Noodles';
+        name = 'Wai Wai Instant Noodles 75g';
+        brand = 'CG';
+        size = '75g';
+        unit = 'पोका';
+        conf = 0.8;
+      }
+
       return {
-        id: 'detected_' + Date.now(),
-        name: lang === 'en' ? 'Wai Wai Instant Noodles 75g' : 'वाइवाइ तयारी चाउचाउ (७५ ग्राम)',
-        nameEn: 'Wai Wai Instant Noodles 75g',
-        sellingPrice: 25,
-        costPrice: 21,
+        id: 'manual_' + Date.now(),
+        productName: name,
+        name,
+        nameEn: name,
+        brand,
+        category: cat,
+        variant,
+        size,
+        sellingPrice: '',
+        costPrice: '',
         stockQty: 10,
-        unit: lang === 'en' ? 'Pkt' : 'पोका',
-        minStockAlert: 5,
-        barcode: '8901230005',
-        category: lang === 'en' ? 'Snacks' : 'खाजा तथा स्न्याक्स',
-        confidence: 'HIGH'
+        unit,
+        confidence: conf,
+        needsReview: !name || conf < 0.75,
+        extractedText: name ? [name] : []
       };
     } else {
       return [
@@ -183,6 +246,13 @@ export default function ScanView({ onImportSuccess }) {
   const executeAutoScan = async (file) => {
     if (!file) return;
 
+    // Increment request ID to prevent async races or stale response leakage
+    const currentRequestId = ++scanRequestIdRef.current;
+
+    // Immediately clear previous scan form & results
+    setConfirmationForm(null);
+    setRackProducts([]);
+    setExtractedRows([]);
     setPreviewImage(URL.createObjectURL(file));
     setIsProcessing(true);
     setErrorMessage('');
@@ -197,7 +267,11 @@ export default function ScanView({ onImportSuccess }) {
       if (scanMode === 'paper') {
         let records = null;
         try {
-          const res = await fetch(`${baseUrl}/api/ocr/scan`, { method: 'POST', body: formData });
+          const res = await fetch(`${baseUrl}/api/ocr/scan`, { 
+            method: 'POST', 
+            body: formData,
+            headers: { 'x-request-id': 'req_paper_' + currentRequestId }
+          });
           const text = await res.text();
           if (text.trim().startsWith('{')) {
             const data = JSON.parse(text);
@@ -210,6 +284,8 @@ export default function ScanView({ onImportSuccess }) {
           console.warn('Backend OCR unreachable, using built-in OCR parser:', netErr);
         }
 
+        if (scanRequestIdRef.current !== currentRequestId) return;
+
         // If backend was offline or didn't return JSON, fallback smoothly
         if (!records) {
           records = getFallbackRecords('paper');
@@ -218,7 +294,7 @@ export default function ScanView({ onImportSuccess }) {
 
         setExtractedRows(records);
       } else if (scanMode === 'single_product') {
-        // Automatic background removal to pure white!
+        // Automatic background removal to pure white studio background!
         let whiteBgImage = '';
         try {
           whiteBgImage = await processProductToWhiteBackground(file);
@@ -228,7 +304,11 @@ export default function ScanView({ onImportSuccess }) {
 
         let product = null;
         try {
-          const res = await fetch(`${baseUrl}/api/ocr/product-photo`, { method: 'POST', body: formData });
+          const res = await fetch(`${baseUrl}/api/ocr/product-photo`, { 
+            method: 'POST', 
+            body: formData,
+            headers: { 'x-request-id': 'req_product_' + currentRequestId }
+          });
           const text = await res.text();
           if (text.trim().startsWith('{')) {
             const data = JSON.parse(text);
@@ -240,12 +320,36 @@ export default function ScanView({ onImportSuccess }) {
           console.warn('Backend product recognition unreachable, using built-in parser:', netErr);
         }
 
-        if (!product) {
-          product = getFallbackRecords('single_product');
+        // Verify that this async response corresponds to the latest scan request!
+        if (scanRequestIdRef.current !== currentRequestId) {
+          console.log(`[STALE_RESPONSE_IGNORED] Discarding response for request ${currentRequestId}`);
+          return;
         }
 
-        setDetectedProduct({
-          ...product,
+        if (!product) {
+          product = getFallbackRecords('single_product', file.name);
+        }
+
+        const name = product.productName || product.name || '';
+        const category = product.category || 'Other';
+        const conf = typeof product.confidence === 'number' ? product.confidence : 0.5;
+        const needsReview = Boolean(product.needsReview || !name || conf < 0.75 || category === 'Other');
+
+        setConfirmationForm({
+          name,
+          nameEn: product.nameEn || name,
+          brand: product.brand || '',
+          category,
+          variant: product.variant || '',
+          size: product.size || '',
+          sellingPrice: product.sellingPrice || product.suggestedSellingPrice || '',
+          costPrice: product.costPrice || product.suggestedCostPrice || '',
+          stockQty: product.stockQty !== undefined ? product.stockQty : 10,
+          unit: product.unit || (category === 'Medicine' ? 'पत्ता' : 'थान'),
+          barcode: product.barcode || '',
+          confidence: conf,
+          needsReview,
+          extractedText: product.extractedText || [],
           imageUrl: whiteBgImage || URL.createObjectURL(file)
         });
       } else if (scanMode === 'rack_shelf') {
@@ -258,7 +362,11 @@ export default function ScanView({ onImportSuccess }) {
 
         let prods = null;
         try {
-          const res = await fetch(`${baseUrl}/api/ocr/rack-photo`, { method: 'POST', body: formData });
+          const res = await fetch(`${baseUrl}/api/ocr/rack-photo`, { 
+            method: 'POST', 
+            body: formData,
+            headers: { 'x-request-id': 'req_rack_' + currentRequestId }
+          });
           const text = await res.text();
           if (text.trim().startsWith('{')) {
             const data = JSON.parse(text);
@@ -270,6 +378,8 @@ export default function ScanView({ onImportSuccess }) {
           console.warn('Backend rack recognition unreachable, using built-in parser:', netErr);
         }
 
+        if (scanRequestIdRef.current !== currentRequestId) return;
+
         if (!prods) {
           prods = getFallbackRecords('rack_shelf');
         }
@@ -280,9 +390,13 @@ export default function ScanView({ onImportSuccess }) {
         })));
       }
     } catch (err) {
-      setErrorMessage(err.message || (lang === 'en' ? 'Scanning failed' : 'स्क्यान गर्न सकिएन'));
+      if (scanRequestIdRef.current === currentRequestId) {
+        setErrorMessage(err.message || (lang === 'en' ? 'Scanning failed' : 'स्क्यान गर्न सकिएन'));
+      }
     } finally {
-      setIsProcessing(false);
+      if (scanRequestIdRef.current === currentRequestId) {
+        setIsProcessing(false);
+      }
     }
   };
 
@@ -346,19 +460,39 @@ export default function ScanView({ onImportSuccess }) {
     }
   };
 
-  // --- Single Product Actions ---
-  const handleSaveSingleProduct = async () => {
-    if (!detectedProduct?.name) return;
+  // --- Single Product Confirmation & Save ---
+  const handleSaveSingleProduct = async (e) => {
+    if (e) e.preventDefault();
+    if (!confirmationForm) return;
+
+    const trimmedName = (confirmationForm.name || '').trim();
+    const sellingPrice = parseFloat(confirmationForm.sellingPrice);
+
+    if (!trimmedName) {
+      setErrorMessage(lang === 'en' ? 'Please enter a product name' : 'कृपया सामानको नाम लेख्नुहोस्');
+      return;
+    }
+    if (isNaN(sellingPrice) || sellingPrice < 0) {
+      setErrorMessage(lang === 'en' ? 'Please enter a valid selling price' : 'कृपया मान्य बिक्री मूल्य लेख्नुहोस्');
+      return;
+    }
+
     setIsProcessing(true);
+    setErrorMessage('');
+
     const prodPayload = {
-      name: detectedProduct.name,
-      nameEn: detectedProduct.nameEn || '',
-      sellingPrice: Number(detectedProduct.sellingPrice) || 0,
-      costPrice: Number(detectedProduct.costPrice) || 0,
-      stockQty: Number(detectedProduct.stockQty) || 0,
-      unit: detectedProduct.unit || (lang === 'en' ? 'Pcs' : 'थान'),
-      category: detectedProduct.category || (lang === 'en' ? 'Kirana' : 'किराना'),
-      imageUrl: detectedProduct.imageUrl || ''
+      name: trimmedName,
+      nameEn: (confirmationForm.nameEn || '').trim() || trimmedName,
+      brand: (confirmationForm.brand || '').trim(),
+      category: confirmationForm.category || 'General Kirana',
+      variant: (confirmationForm.variant || '').trim(),
+      size: (confirmationForm.size || '').trim(),
+      sellingPrice: sellingPrice,
+      costPrice: parseFloat(confirmationForm.costPrice) || 0,
+      stockQty: parseFloat(confirmationForm.stockQty) || 0,
+      unit: confirmationForm.unit || 'थान',
+      barcode: confirmationForm.barcode || '',
+      imageUrl: confirmationForm.imageUrl || ''
     };
 
     try {
@@ -374,13 +508,16 @@ export default function ScanView({ onImportSuccess }) {
         prods.unshift({ _id: 'prod_' + Date.now(), ...prodPayload });
         setLocalStore('kk_cached_prods', prods);
       }
-      setSuccessMessage(lang === 'en' ? `"${detectedProduct.name}" added to stock successfully!` : `"${detectedProduct.name}" स्टकमा सफलतापूर्वक थपियो!`);
-      setDetectedProduct(null);
+      setSuccessMessage(
+        lang === 'en' 
+          ? `"${prodPayload.name}" (${prodPayload.category}) added to inventory successfully!` 
+          : `"${prodPayload.name}" (${prodPayload.category}) स्टकमा सफलतापूर्वक थपियो!`
+      );
+      setConfirmationForm(null);
       setPreviewImage(null);
       if (onImportSuccess) onImportSuccess();
     } catch (err) {
-      setSuccessMessage(lang === 'en' ? `"${detectedProduct.name}" registered to stock!` : `"${detectedProduct.name}" स्टकमा थपियो!`);
-      if (onImportSuccess) onImportSuccess();
+      setErrorMessage(err.message || (lang === 'en' ? 'Failed to save product' : 'सामान सुरक्षित हुन सकेन'));
     } finally {
       setIsProcessing(false);
     }
@@ -655,82 +792,203 @@ export default function ScanView({ onImportSuccess }) {
         </div>
       )}
 
-      {/* ================= SECTION B: SINGLE PRODUCT SCAN REVIEW ================= */}
-      {scanMode === 'single_product' && detectedProduct && (
-        <div className="bg-white rounded-2xl p-4 border border-emerald-500/40 shadow-xs space-y-3 animate-in fade-in">
-          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-            <span className="text-xs font-black text-emerald-900 uppercase tracking-wide flex items-center gap-1">
-              <Check className="w-4 h-4 text-emerald-700" />
-              {t('productRecognizedTitle')}
-            </span>
-            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800">
-              {t('highConfidence')}
-            </span>
-          </div>
+      {/* ================= SECTION B: SINGLE PRODUCT SCAN CONFIRMATION ================= */}
+      {scanMode === 'single_product' && confirmationForm && (
+        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-md space-y-3.5 animate-in fade-in">
+          
+          {/* 1. Identification Status Banner */}
+          {confirmationForm.needsReview || confirmationForm.confidence < 0.75 || !confirmationForm.name ? (
+            <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-2.5">
+              <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <h4 className="font-extrabold text-xs sm:text-sm">
+                  {lang === 'en' ? 'Product not identified confidently' : 'सामान यकिनका साथ पहिचान हुन सकेन'}
+                </h4>
+                <p className="text-[11px] sm:text-xs text-amber-700 mt-0.5">
+                  {lang === 'en' 
+                    ? 'Please review, type the correct product name, and select the category before saving.' 
+                    : 'कृपया सामानको सही नाम लेख्नुहोस् र समूह (Category) छानेर मात्र सुरक्षित गर्नुहोस्।'}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-center justify-between">
+              <span className="text-xs sm:text-sm font-extrabold flex items-center gap-1.5 text-emerald-900">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                {lang === 'en' ? 'AI Product Identification' : 'तस्बिरबाट सामान पहिचान भयो'}
+              </span>
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800">
+                {Math.round((confirmationForm.confidence || 0.85) * 100)}% Confidence
+              </span>
+            </div>
+          )}
 
-          {/* White Background Isolated Product Preview */}
-          {detectedProduct.imageUrl && (
+          {/* 2. Isolated White-Background Image & Live Preview */}
+          {confirmationForm.imageUrl && (
             <div className="flex items-center gap-3 p-2 bg-slate-50 rounded-xl border border-slate-200">
-              <div className="w-16 h-16 rounded-lg bg-white border border-slate-300 p-1 flex-shrink-0 flex items-center justify-center shadow-xs">
+              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-lg bg-white border border-slate-300 p-1 flex-shrink-0 flex items-center justify-center shadow-xs">
                 <img 
-                  src={detectedProduct.imageUrl} 
+                  src={confirmationForm.imageUrl} 
                   alt="Product Studio" 
                   className="w-full h-full object-contain"
                 />
               </div>
-              <div className="text-xs">
+              <div className="text-xs flex-1">
                 <span className="font-extrabold text-emerald-900 flex items-center gap-1">
                   <Sparkles className="w-3.5 h-3.5 text-amber-500" />
                   {t('whiteStudioBadge')}
                 </span>
                 <p className="text-slate-500 text-[11px] mt-0.5">
-                  {t('whiteStudioDesc')}
+                  {lang === 'en' ? 'Automatic background removed for crisp kirana catalog' : 'सेतो स्टुडियो पृष्ठभूमिमा राखिएको तस्बिर'}
                 </p>
+                {confirmationForm.extractedText?.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {confirmationForm.extractedText.slice(0, 4).map((word, idx) => (
+                      <span key={idx} className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 text-[10px] font-mono">
+                        {word}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          <div className="space-y-2 text-xs">
+          {/* 3. Fully Editable Product Attributes Form */}
+          <div className="space-y-2.5 text-xs">
+            {/* Row 1: Product Name */}
             <div>
-              <label className="block text-slate-600 font-bold mb-0.5">{lang === 'en' ? 'Product Name *' : 'सामानको नाम *'}</label>
+              <label className="block text-slate-700 font-extrabold mb-1">
+                {lang === 'en' ? 'Product Name *' : 'सामानको नाम *'}
+              </label>
               <input
                 type="text"
-                value={detectedProduct.name}
-                onChange={(e) => setDetectedProduct({ ...detectedProduct, name: e.target.value })}
-                className="w-full p-2 rounded-xl border border-slate-300 font-bold text-sm bg-slate-50"
+                value={confirmationForm.name}
+                onChange={(e) => setConfirmationForm(prev => ({ ...prev, name: e.target.value }))}
+                placeholder={lang === 'en' ? 'e.g. Paracetamol 500mg, Wai Wai Noodles' : 'जस्तै: सिटामोल ५०० एमजी, वाइवाइ चाउचाउ'}
+                className={`w-full p-2.5 rounded-xl border font-bold text-sm bg-white ${
+                  !confirmationForm.name.trim() ? 'border-red-400 focus:ring-red-400 bg-red-50/20' : 'border-slate-300'
+                }`}
               />
+              {!confirmationForm.name.trim() && (
+                <span className="text-[11px] text-red-600 font-semibold mt-0.5 block">
+                  {lang === 'en' ? 'Product name is required' : 'सामानको नाम अनिवार्य छ'}
+                </span>
+              )}
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {/* Row 2: Brand & Category */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div>
-                <label className="block text-slate-600 font-bold mb-0.5">{lang === 'en' ? 'Selling Price (Rs.) *' : 'बिक्री मूल्य (रु.) *'}</label>
+                <label className="block text-slate-700 font-bold mb-1">
+                  {lang === 'en' ? 'Brand / Manufacturer' : 'कम्पनी / ब्रान्ड'}
+                </label>
                 <input
-                  type="number"
-                  value={detectedProduct.sellingPrice}
-                  onChange={(e) => setDetectedProduct({ ...detectedProduct, sellingPrice: e.target.value })}
-                  className="w-full p-2 rounded-xl border border-slate-300 font-black text-sm text-[#023c2e]"
+                  type="text"
+                  value={confirmationForm.brand}
+                  onChange={(e) => setConfirmationForm(prev => ({ ...prev, brand: e.target.value }))}
+                  placeholder={lang === 'en' ? 'e.g. Beximco, CG, Dhara, Colgate' : 'जस्तै: बेक्सिम्को, सिजि, धारा'}
+                  className="w-full p-2 rounded-xl border border-slate-300 font-semibold text-xs bg-white"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-600 font-bold mb-0.5">{lang === 'en' ? 'Opening Quantity' : 'सुरुको परिमाण (स्टक)'}</label>
+                <label className="block text-slate-700 font-bold mb-1">
+                  {lang === 'en' ? 'Category *' : 'सामानको समूह (Category) *'}
+                </label>
+                <select
+                  value={confirmationForm.category}
+                  onChange={(e) => setConfirmationForm(prev => ({ ...prev, category: e.target.value }))}
+                  className="w-full p-2 rounded-xl border border-slate-300 font-bold text-xs bg-white"
+                >
+                  {PRODUCT_CATEGORIES.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Row 3: Variant & Size */}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">
+                  {lang === 'en' ? 'Strength / Variant' : 'प्रकार / क्षमता (Variant)'}
+                </label>
+                <input
+                  type="text"
+                  value={confirmationForm.variant}
+                  onChange={(e) => setConfirmationForm(prev => ({ ...prev, variant: e.target.value }))}
+                  placeholder={lang === 'en' ? 'e.g. 500mg, Hot & Spicy' : 'जस्तै: 500mg, पिरो'}
+                  className="w-full p-2 rounded-xl border border-slate-300 font-semibold text-xs bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">
+                  {lang === 'en' ? 'Size / Pack' : 'साइज / प्याक (Size)'}
+                </label>
+                <input
+                  type="text"
+                  value={confirmationForm.size}
+                  onChange={(e) => setConfirmationForm(prev => ({ ...prev, size: e.target.value }))}
+                  placeholder={lang === 'en' ? 'e.g. 10 Tablets, 75g, 1L' : 'जस्तै: 10 Tablets, 75g'}
+                  className="w-full p-2 rounded-xl border border-slate-300 font-semibold text-xs bg-white"
+                />
+              </div>
+            </div>
+
+            {/* Row 4: Selling Price & Cost Price */}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">
+                  {lang === 'en' ? 'Selling Price (Rs.) *' : 'बिक्री मूल्य (रु.) *'}
+                </label>
+                <input
+                  type="number"
+                  value={confirmationForm.sellingPrice}
+                  onChange={(e) => setConfirmationForm(prev => ({ ...prev, sellingPrice: e.target.value }))}
+                  placeholder="रु."
+                  className="w-full p-2 rounded-xl border border-slate-300 font-black text-sm text-[#023c2e] bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">
+                  {lang === 'en' ? 'Cost / Purchase Price' : 'खरिद मूल्य (रु.)'}
+                </label>
+                <input
+                  type="number"
+                  value={confirmationForm.costPrice}
+                  onChange={(e) => setConfirmationForm(prev => ({ ...prev, costPrice: e.target.value }))}
+                  placeholder="रु."
+                  className="w-full p-2 rounded-xl border border-slate-300 font-bold text-xs text-slate-600 bg-white"
+                />
+              </div>
+            </div>
+
+            {/* Row 5: Opening Stock & Unit */}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">
+                  {lang === 'en' ? 'Opening Quantity' : 'सुरुको परिमाण (स्टक)'}
+                </label>
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => setDetectedProduct(p => ({ ...p, stockQty: Math.max(0, (Number(p.stockQty) || 0) - 1) }))}
+                    onClick={() => setConfirmationForm(p => ({ ...p, stockQty: Math.max(0, (Number(p.stockQty) || 0) - 1) }))}
                     className="w-8 h-8 rounded-lg bg-slate-200 hover:bg-slate-300 font-black flex items-center justify-center"
                   >
                     <Minus className="w-3.5 h-3.5" />
                   </button>
                   <input
                     type="number"
-                    value={detectedProduct.stockQty}
-                    onChange={(e) => setDetectedProduct({ ...detectedProduct, stockQty: e.target.value })}
-                    className="w-14 p-1.5 rounded-lg border border-slate-300 font-black text-center text-sm"
+                    value={confirmationForm.stockQty}
+                    onChange={(e) => setConfirmationForm(prev => ({ ...prev, stockQty: e.target.value }))}
+                    className="flex-1 p-1.5 rounded-lg border border-slate-300 font-black text-center text-sm bg-white"
                   />
                   <button
                     type="button"
-                    onClick={() => setDetectedProduct(p => ({ ...p, stockQty: (Number(p.stockQty) || 0) + 1 }))}
+                    onClick={() => setConfirmationForm(p => ({ ...p, stockQty: (Number(p.stockQty) || 0) + 1 }))}
                     className="w-8 h-8 rounded-lg bg-emerald-100 hover:bg-emerald-200 font-black flex items-center justify-center text-emerald-900"
                   >
                     <Plus className="w-3.5 h-3.5" />
@@ -739,30 +997,33 @@ export default function ScanView({ onImportSuccess }) {
               </div>
 
               <div>
-                <label className="block text-slate-600 font-bold mb-0.5">{lang === 'en' ? 'Unit' : 'एकाइ (Unit)'}</label>
+                <label className="block text-slate-700 font-bold mb-1">
+                  {lang === 'en' ? 'Unit *' : 'एकाइ (Unit) *'}
+                </label>
                 <select
-                  value={detectedProduct.unit}
-                  onChange={(e) => setDetectedProduct({ ...detectedProduct, unit: e.target.value })}
+                  value={confirmationForm.unit}
+                  onChange={(e) => setConfirmationForm(prev => ({ ...prev, unit: e.target.value }))}
                   className="w-full p-2 rounded-xl border border-slate-300 font-bold text-xs bg-white"
                 >
-                  <option value={lang === 'en' ? 'Pcs' : 'थान'}>{lang === 'en' ? 'Pcs' : 'थान'}</option>
-                  <option value={lang === 'en' ? 'Pkt' : 'पोका'}>{lang === 'en' ? 'Pkt' : 'पोका'}</option>
-                  <option value={lang === 'en' ? 'Kg' : 'के.जी.'}>{lang === 'en' ? 'Kg' : 'के.जी.'}</option>
-                  <option value={lang === 'en' ? 'Bottle' : 'बोतल'}>{lang === 'en' ? 'Bottle' : 'बोतल'}</option>
-                  <option value={lang === 'en' ? 'Dozen' : 'दर्जन'}>{lang === 'en' ? 'Dozen' : 'दर्जन'}</option>
+                  {PRODUCT_UNITS.map(u => (
+                    <option key={u.value} value={u.value}>
+                      {lang === 'en' ? u.labelEn : u.labelNe}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
           </div>
 
+          {/* Confirm & Save Button */}
           <button
             type="button"
             onClick={handleSaveSingleProduct}
-            disabled={isProcessing}
-            className="w-full py-2.5 rounded-xl bg-[#023c2e] hover:bg-[#034b39] text-white text-sm font-black shadow-xs flex items-center justify-center gap-1.5"
+            disabled={isProcessing || !confirmationForm.name.trim() || !confirmationForm.sellingPrice}
+            className="w-full py-3 rounded-xl bg-[#023c2e] hover:bg-[#034b39] text-white text-sm font-black shadow-md flex items-center justify-center gap-2 transition-all disabled:opacity-50 active:scale-98"
           >
-            <Plus className="w-4 h-4 text-[#f5d77f]" />
-            <span>{t('addToInventoryBtn')}</span>
+            <Plus className="w-5 h-5 text-[#f5d77f]" />
+            <span>{lang === 'en' ? 'Confirm & Save to Inventory' : 'जाँचियो — स्टकमा सुरक्षित गर्नुहोस्'}</span>
           </button>
         </div>
       )}

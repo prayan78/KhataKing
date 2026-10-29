@@ -111,7 +111,10 @@ export default function StockView({ products, onRefreshProducts }) {
 
     const payload = {
       name: prodForm.name.trim(),
-      nameEn: prodForm.nameEn.trim(),
+      nameEn: prodForm.nameEn?.trim() || '',
+      brand: prodForm.brand?.trim() || '',
+      variant: prodForm.variant?.trim() || '',
+      size: prodForm.size?.trim() || '',
       sellingPrice: parseFloat(prodForm.sellingPrice) || 0,
       costPrice: parseFloat(prodForm.costPrice) || 0,
       stockQty: parseFloat(prodForm.stockQty) || 0,
