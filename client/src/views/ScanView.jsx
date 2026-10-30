@@ -33,16 +33,21 @@ export const cleanProductTitle = (str = '') => {
   if (!str) return '';
   let cleaned = str
     .replace(/[|~_—–\\/]+/g, ' ')
-    .replace(/^[\s.\-_:;,\/\\|]+|[\s.\-_:;,\/\\|]+$/g, '')
+    .replace(/^[^a-zA-Z0-9ऀ-ॿ]+|[^a-zA-Z0-9ऀ-ॿ]+$/g, '')
     .replace(/\bchiocopie\b/gi, 'Chocopie')
     .replace(/\bchokopie\b/gi, 'Chocopie')
     .replace(/\bchocopi\b/gi, 'Chocopie')
     .replace(/\bchioco\s*pie\b/gi, 'Choco Pie')
     .replace(/\bwal\s*wal\b/gi, 'Wai Wai')
     .replace(/\bcurent\b/gi, 'Current')
+    .replace(/\bchia\s*seeds?\s*geen\b/gi, 'Chia Seeds')
     .replace(/\s+/g, ' ')
     .trim();
-  cleaned = cleaned.replace(/[\s.\-_:;,\/\\|]+$/g, '').trim();
+
+  // Strip leading numbers if attached to words (e.g. "4 Chia Seeds" -> "Chia Seeds")
+  cleaned = cleaned.replace(/^\d+\s+(?=[a-zA-Zऀ-ॿ])/, '');
+  cleaned = cleaned.replace(/\s+geen$/i, '');
+  cleaned = cleaned.replace(/^[^a-zA-Z0-9ऀ-ॿ]+|[^a-zA-Z0-9ऀ-ॿ]+$/g, '').trim();
   return cleaned;
 };
 
@@ -981,7 +986,11 @@ export default function ScanView({ onImportSuccess }) {
                     {lang === 'en' ? '💡 Click any text read from image to set as title:' : '💡 तस्बिरबाट पढिएका अक्षर (थिचेर सिधै नाम बनाउनुहोस्):'}
                   </span>
                   <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1">
-                    {confirmationForm.extractedText.map((line, idx) => (
+                    {Array.from(new Set(
+                      (confirmationForm.extractedText || [])
+                        .map(l => cleanProductTitle(l))
+                        .filter(t => t && t.length >= 3 && !/^[\d\s]+$/.test(t))
+                    )).map((line, idx) => (
                       <button
                         key={idx}
                         type="button"

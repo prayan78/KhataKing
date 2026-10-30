@@ -1,3 +1,4 @@
+import sharp from 'sharp';
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
@@ -293,8 +294,20 @@ router.post('/ocr/product-photo', upload.single('image'), async (req, res) => {
     const requestId = req.headers['x-request-id'] || req.body?.requestId || ('req_' + Date.now());
     const filename = req.file ? req.file.originalname : 'product.jpg';
     const mimeType = req.file ? req.file.mimetype : 'image/jpeg';
-    const buffer = req.file ? req.file.buffer : null;
-    const fileUrl = buffer ? `data:${mimeType};base64,${buffer.toString('base64')}` : '';
+    let buffer = req.file ? req.file.buffer : null;
+    let fileUrl = '';
+    if (buffer) {
+      try {
+        const compressed = await sharp(buffer)
+          .rotate()
+          .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
+          .jpeg({ quality: 80 })
+          .toBuffer();
+        fileUrl = `data:image/jpeg;base64,${compressed.toString('base64')}`;
+      } catch (e) {
+        fileUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
+      }
+    }
 
     console.log(`[SCAN_PRODUCT_REQUEST] ID: ${requestId} | File: ${filename} | Size: ${req.file?.size || 0} bytes (in-memory)`);
 
